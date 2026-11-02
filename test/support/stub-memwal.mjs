@@ -1,15 +1,31 @@
 // Stub for @mysten-incubation/memwal. MemWal.create returns a client backed
 // by the SDK's own MemWalMock (same recall), with listMemories and health.
-import { MemWalMock } from '@mysten-incubation/memwal';
+// MemWalMock (demo memory) is the SDK mock; STUB_FAIL_AT=mock<Method> makes
+// that method throw an error that repeats STUB_ECHO (a fake secret text).
+import { MemWalMock as SdkMock } from '@mysten-incubation/memwal';
 import { maybeFail, maybeFailLate, record } from './stub-common.mjs';
 
-export { MemWalMock };
+export const MemWalMock = {
+  create(config) {
+    const mock = SdkMock.create(config);
+    return new Proxy(mock, {
+      get(target, name) {
+        const value = Reflect.get(target, name, target);
+        if (typeof value !== 'function' || typeof name !== 'string') return value;
+        return (...args) => {
+          maybeFail(`mock${name[0].toUpperCase()}${name.slice(1)}`, process.env.STUB_ECHO);
+          return value.apply(target, args);
+        };
+      },
+    });
+  },
+};
 
 export const MemWal = {
   create(config) {
     record({ module: 'memwal', method: 'create', hasKey: typeof config.key === 'string', serverUrl: config.serverUrl });
     maybeFail('memwalCreate', config.key);
-    const mock = MemWalMock.create({ namespace: config.namespace });
+    const mock = SdkMock.create({ namespace: config.namespace });
     let stored = 0;
     return {
       async rememberAndWait(text) {
