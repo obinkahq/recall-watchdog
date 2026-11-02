@@ -61,6 +61,8 @@ export interface LiveMemoryConfig {
   readonly namespace: string;
 }
 
+// MemWal.create decodes the key. Its error can repeat the key; the entry
+// point boundary prints fixed text only (see errors.ts).
 export function createLiveMemory(config: LiveMemoryConfig): MemoryStore {
   const client = MemWal.create({
     key: config.key,

@@ -2,6 +2,7 @@
 // environment or from a file path that an environment variable names.
 // This file never prints a secret value.
 import { readFileSync } from 'node:fs';
+import { FixedError } from './errors.js';
 
 export type NetworkName = 'testnet' | 'mainnet';
 
@@ -57,10 +58,10 @@ function readSecretFile(path: string, label: string): string {
   try {
     text = readFileSync(path, 'utf8');
   } catch {
-    throw new Error(`${label}: cannot read the secret file at the configured path`);
+    throw new FixedError(`${label}: cannot read the secret file at the configured path`);
   }
   const trimmed = text.trim();
-  if (trimmed === '') throw new Error(`${label}: the secret file is empty`);
+  if (trimmed === '') throw new FixedError(`${label}: the secret file is empty`);
   return trimmed;
 }
 
@@ -76,7 +77,7 @@ export function readSecret(name: string): string | undefined {
 
 export function requireSecret(name: string, hint: string): string {
   const value = readSecret(name);
-  if (value === undefined) throw new Error(`Missing ${name}. ${hint}`);
+  if (value === undefined) throw new FixedError(`Missing ${name}. ${hint}`);
   return value;
 }
 
@@ -85,18 +86,20 @@ export function resolveNetwork(): NetworkConfig {
   const raw = envValue('NETWORK');
   const name: NetworkName = raw === undefined ? 'testnet' : raw.toLowerCase() === 'mainnet' ? 'mainnet' : raw.toLowerCase() === 'testnet' ? 'testnet' : 'invalid' as NetworkName;
   if (name !== 'testnet' && name !== 'mainnet') {
-    throw new Error('NETWORK must be "testnet" (default) or "mainnet"');
+    throw new FixedError('NETWORK must be "testnet" (default) or "mainnet"');
   }
   if (name === 'mainnet' && envValue('ALLOW_MAINNET') !== '1') {
-    throw new Error('NETWORK=mainnet is refused. Set ALLOW_MAINNET=1 only with mainnet keys and only when you mean to use mainnet.');
+    throw new FixedError('NETWORK=mainnet is refused. Set ALLOW_MAINNET=1 only with mainnet keys and only when you mean to use mainnet.');
   }
   return NETWORKS[name];
 }
 
+const WATCH_ADDRESS_INVALID = 'WATCH_ADDRESS must be 0x followed by 64 hex characters.';
+
 export function resolveWatchAddress(): string {
   const address = envValue('WATCH_ADDRESS');
-  if (address === undefined) throw new Error('Missing WATCH_ADDRESS. Set it to the Sui address to watch (0x + 64 hex).');
-  if (!ADDRESS_PATTERN.test(address)) throw new Error('WATCH_ADDRESS must be 0x followed by 64 hex characters.');
+  if (address === undefined) throw new FixedError('Missing WATCH_ADDRESS. Set it to the Sui address to watch (0x + 64 hex).');
+  if (!ADDRESS_PATTERN.test(address)) throw new FixedError(WATCH_ADDRESS_INVALID);
   return address.toLowerCase();
 }
 
@@ -112,7 +115,7 @@ export function resolvePort(): number {
   const raw = envValue('PORT');
   if (raw === undefined) return DEFAULT_PORT;
   const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer from 1 to 65535.');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new FixedError('PORT must be an integer from 1 to 65535.');
   return port;
 }
 

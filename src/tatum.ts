@@ -7,6 +7,7 @@ import { credentials } from '@grpc/grpc-js';
 import { GrpcTransport } from '@protobuf-ts/grpc-transport';
 import { SuiGrpcClient } from '@mysten/sui/grpc';
 import type { NetworkConfig } from './config.js';
+import { FixedError, safeCode } from './errors.js';
 import type { WatchTransaction } from './types.js';
 
 export interface ChainSnapshot {
@@ -22,20 +23,21 @@ function sleep(ms: number): Promise<void> {
 }
 
 // Retry once after a short wait on rate limit or temporary unavailability.
+// The thrown text names the step and a known gRPC status only: the request
+// carries the API key, so the dependency message is never repeated.
 export async function withRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
-    const code = String((error as { code?: unknown }).code ?? '');
-    const message = String((error as { message?: unknown }).message ?? '');
+    const code = safeCode(error);
+    const message = String((error as { message?: unknown } | null)?.message ?? '');
     const retryable = code === 'UNAVAILABLE' || code === 'RESOURCE_EXHAUSTED' || message.includes('429');
-    if (!retryable) throw new Error(`${label} failed (${code || 'error'}): ${message.slice(0, 200)}`);
+    if (!retryable) throw new FixedError(`${label} failed (${code ?? 'error'})`);
     await sleep(5_000);
     try {
       return await run();
     } catch (secondError) {
-      const code2 = String((secondError as { code?: unknown }).code ?? 'error');
-      throw new Error(`${label} failed after one retry (${code2})`);
+      throw new FixedError(`${label} failed after one retry (${safeCode(secondError) ?? 'error'})`);
     }
   }
 }
@@ -137,7 +139,7 @@ export function toWatchTransaction(result: SdkTxResult, watchAddress: string): W
 // (fetchNewTransactions). This is the supported way to watch an address.
 export async function takeCursor(client: SuiGrpcClient): Promise<string> {
   const head = await withRetry('takeCursor', () => client.listTransactions({ limit: 1, order: 'descending' }));
-  if (head.startCursor === null) throw new Error('takeCursor failed: the chain head returned no cursor');
+  if (head.startCursor === null) throw new FixedError('takeCursor failed: the chain head returned no cursor');
   return head.startCursor;
 }
 
