@@ -33,14 +33,14 @@ function log(line: string): void {
 async function selfTransfer(publicClient: import('@mysten/sui/grpc').SuiGrpcClient, keypair: Ed25519Keypair, watchAddress: string): Promise<string | null> {
   const coins = await withRetry('listCoins (public)', () => publicClient.listCoins({ owner: watchAddress }));
   if (coins.objects.length === 0) {
-    log('self-transfer skipped: the wallet holds no Coin<SUI> object (balance is in the address balance)');
-    return null;
+    log('no Coin<SUI> yet: gas is paid from the address balance (gasPayment empty)');
   }
   const digestList: string[] = [];
   for (let i = 0; i < 2; i += 1) {
     const tx = new Transaction();
     tx.setSender(watchAddress);
-    const [coin] = tx.splitCoins(tx.gas, [1_000]);
+    tx.setGasPayment([]);
+    const coin = tx.coin({ type: '0x2::sui::SUI', balance: 1_000n, useGasCoin: false });
     tx.transferObjects([coin], watchAddress);
     const result = await publicClient.signAndExecuteTransaction({ signer: keypair, transaction: tx, include: { effects: true } });
     const executed = result.Transaction ?? result.FailedTransaction;
