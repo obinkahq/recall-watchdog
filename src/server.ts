@@ -5,7 +5,7 @@
 // address, judged with the rules and the recalled verdicts. A set but
 // malformed WATCH_ADDRESS stops startup (no silent demo fallback). Every
 // request is checked with zod. Error responses carry fixed text only.
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -107,6 +107,24 @@ function pickLiveWatch(network: NetworkConfig): LiveWatch | null {
   return { clients: createSuiClients(network, checkTatumKey(tatumKey)), watchAddress };
 }
 
+// Listen on the loopback host only. A listen failure (for example a port in
+// use) stops startup with fixed text that names the cause.
+function listenLocal(server: Server, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: unknown): void => {
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code === 'EADDRINUSE') reject(new FixedError(`Port ${port} on ${LISTEN_HOST} is in use. Stop the other program or set PORT to a free port.`));
+      else if (code === 'EACCES') reject(new FixedError(`No permission to listen on port ${port}. Set PORT to a port from 1024 to 65535.`));
+      else reject(new FixedError(`Cannot listen on ${LISTEN_HOST}:${port}.`));
+    };
+    server.once('error', onError);
+    server.listen(port, LISTEN_HOST, () => {
+      server.off('error', onError);
+      resolve();
+    });
+  });
+}
+
 async function main(): Promise<void> {
   const network = resolveNetwork();
   const port = resolvePort();
@@ -203,10 +221,9 @@ async function main(): Promise<void> {
     }
   });
 
-  server.listen(port, LISTEN_HOST, () => {
-    const watch = live === null ? 'demo chain data' : 'live watch on';
-    process.stdout.write(`Recall Watchdog (${mode} memory, ${watch}, network ${network.name}) at http://${LISTEN_HOST}:${port}/\n`);
-  });
+  await listenLocal(server, port);
+  const watch = live === null ? 'demo chain data' : 'live watch on';
+  process.stdout.write(`Recall Watchdog (${mode} memory, ${watch}, network ${network.name}) at http://${LISTEN_HOST}:${port}/\n`);
 }
 
 installFixedCrashHandlers('server failed');
