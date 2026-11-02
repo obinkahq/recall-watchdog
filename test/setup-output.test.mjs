@@ -20,7 +20,7 @@ test('setup: a bad output path stops setup with zero chain calls', () => {
   const tmp = makeTmp('setup-bad');
   writeFileSync(path.join(tmp, 'exists.key'), 'old\n', { mode: 0o600 });
   symlinkSync(path.join(tmp, 'elsewhere.key'), path.join(tmp, 'link.key'));
-  const inside = path.join(REPO, 'test', 'never-written.key');
+  const inside = path.join(REPO, 'test', `never-written-${process.pid}.key`);
   const cases = [
     ['unset', undefined, /Set MEMWAL_DELEGATE_KEY_OUT/],
     ['relative', 'delegate.key', /must be an absolute path/],
