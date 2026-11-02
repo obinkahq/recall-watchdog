@@ -1,11 +1,13 @@
 // Demo mode (J1). No key, no network. The same rules and the same decision
 // code as live mode; only the memory build and the data source differ.
+import { resolveNetwork } from './config.js';
 import { judgeBatch } from './decide.js';
 import { createDemoMemory } from './memory.js';
 import { printJudgement } from './report.js';
 import { DEMO_OWNER, KNOWN_COUNTERPARTIES, KNOWN_FUNCTIONS, SCRIPTED_VERDICTS, syntheticBatch } from './synthetic.js';
 
 async function main(): Promise<void> {
+  resolveNetwork(); // the mainnet guard applies to every entry point
   const batch = syntheticBatch();
   const ctx = { knownCounterparties: KNOWN_COUNTERPARTIES, knownFunctions: KNOWN_FUNCTIONS, watchAddress: DEMO_OWNER };
   const memory = createDemoMemory('recall-watchdog');
