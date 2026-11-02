@@ -5,7 +5,7 @@
 // No secret value is printed.
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
-import { createSuiClients, fetchSnapshot, withRetry } from './tatum.js';
+import { createSuiClients, fetchChainState, fetchNewTransactions, withRetry } from './tatum.js';
 import { createLiveMemory } from './memory.js';
 import { readSecret, requireSecret, resolveMemwalServerUrl, resolveNamespace, resolveNetwork, resolveWatchAddress } from './config.js';
 import { SCRIPTED_VERDICTS } from './synthetic.js';
@@ -68,11 +68,8 @@ async function main(): Promise<void> {
     log(`health=${health}`);
     if (health !== 'ok') throw new Error(`relayer health is "${health}", expected "ok"`);
 
-    const before = await fetchSnapshot(clients.viaTatum, watchAddress);
-    log(`tatum chain=${before.chainIdentifier} balanceMist=${before.balanceMist} txCount=${before.transactions.length} hasNext=${before.hasNextPage}`);
-    for (const tx of before.transactions.slice(0, 5)) {
-      log(`  tx ${tx.digest} fn=${tx.functionName ?? '-'} amountMist=${tx.amountMist.toString()}`);
-    }
+    const before = await fetchChainState(clients.viaTatum, watchAddress);
+    log(`tatum chain=${before.chainIdentifier} balanceMist=${before.balanceMist} cursorTaken=yes`);
 
     const suiKeyText = readSecret('SUI_PRIVATE_KEY');
     let transferDigests: string | null = null;
@@ -106,11 +103,14 @@ async function main(): Promise<void> {
     log(`memory count in namespace=${count}`);
 
     if (transferDigests !== null) {
-      const after = await fetchSnapshot(clients.viaTatum, watchAddress);
-      const digests = new Set(after.transactions.map((t) => t.digest));
+      const fresh = await fetchNewTransactions(clients.viaTatum, watchAddress, before.cursor);
+      const digests = new Set(fresh.map((t) => t.digest));
       const found = transferDigests.split(',').filter((d) => digests.has(d));
-      log(`tatum re-read after transfer: txCount=${after.transactions.length} foundNew=${found.length}/2`);
-      if (found.length === 0) throw new Error('Tatum read did not return the new self-transfer transactions yet (indexing lag). Re-run npm run live.');
+      log(`tatum poll after transfer: newTx=${fresh.length} foundNew=${found.length}/2`);
+      for (const tx of fresh) {
+        log(`  new tx ${tx.digest} fn=${tx.functionName ?? '-'} amountMist=${tx.amountMist.toString()}`);
+      }
+      if (found.length === 0) throw new Error('Tatum poll did not return the new self-transfer transactions yet (indexing lag). Re-run npm run live.');
     }
 
     if (finished < 10) throw new Error(`only ${finished} memories finished, need at least 10`);

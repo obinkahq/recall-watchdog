@@ -14,6 +14,7 @@ export interface ChainSnapshot {
   readonly balanceMist: string;
   readonly transactions: readonly WatchTransaction[];
   readonly hasNextPage: boolean;
+  readonly cursor: string;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -122,20 +123,45 @@ export function toWatchTransaction(result: SdkTxResult, watchAddress: string): W
   };
 }
 
-export async function fetchSnapshot(client: SuiGrpcClient, watchAddress: string, limit = 25): Promise<ChainSnapshot> {
+// Poll model for chain reads. Sui full nodes prune old checkpoints, and an
+// unanchored sender query scans from genesis, which a pruned node refuses
+// (OUT_OF_RANGE). So the watchdog takes a cursor at the chain head first
+// (takeCursor), then asks only for matching transactions after that cursor
+// (fetchNewTransactions). This is the supported way to watch an address.
+export async function takeCursor(client: SuiGrpcClient): Promise<string> {
+  const head = await withRetry('takeCursor', () => client.listTransactions({ limit: 1, order: 'descending' }));
+  if (head.startCursor === null) throw new Error('takeCursor failed: the chain head returned no cursor');
+  return head.startCursor;
+}
+
+export async function fetchChainState(client: SuiGrpcClient, watchAddress: string): Promise<ChainSnapshot> {
   const { chainIdentifier } = await withRetry('getChainIdentifier', () => client.core.getChainIdentifier());
   const { balance } = await withRetry('getBalance', () => client.core.getBalance({ owner: watchAddress, coinType: '0x2::sui::SUI' }));
+  const cursor = await takeCursor(client);
+  return { chainIdentifier, balanceMist: balance.balance, transactions: [], hasNextPage: false, cursor };
+}
+
+export async function fetchNewTransactions(client: SuiGrpcClient, watchAddress: string, afterCursor: string, limit = 25): Promise<readonly WatchTransaction[]> {
   const page = await withRetry('listTransactions', () =>
     client.listTransactions({
       filter: { sender: watchAddress },
       limit,
-      order: 'descending',
+      after: afterCursor,
       include: { transaction: true, balanceChanges: true, effects: true },
     }),
   );
-  const transactions = page.transactions.flatMap((r) => {
+  return page.transactions.flatMap((r) => {
     const mapped = toWatchTransaction(r as unknown as SdkTxResult, watchAddress);
     return mapped === null ? [] : [mapped];
   });
-  return { chainIdentifier, balanceMist: balance.balance, transactions, hasNextPage: page.hasNextPage };
+}
+
+export async function fetchTransactionsByDigest(client: SuiGrpcClient, watchAddress: string, digests: readonly string[]): Promise<readonly WatchTransaction[]> {
+  const out: WatchTransaction[] = [];
+  for (const digest of digests) {
+    const result = await withRetry('getTransaction', () => client.getTransaction({ digest, include: { transaction: true, balanceChanges: true, effects: true } }));
+    const mapped = toWatchTransaction(result as unknown as SdkTxResult, watchAddress);
+    if (mapped !== null) out.push(mapped);
+  }
+  return out;
 }

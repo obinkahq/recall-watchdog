@@ -92,7 +92,7 @@ npm run check   # type check + lint + build + node --test
 
 - **Demo data only.** The managed relayer sees plaintext during embedding and encryption. Verdict memories hold only synthetic patterns and short notes. Do not store personal data.
 - Rules are simple and transparent on purpose; they are not financial advice and they do not replace a careful look at your wallet.
-- `listTransactions` filters by sender, so the live read shows transactions the watch address sent. Incoming-only activity from other senders is out of scope for this entry.
+- Watching uses the poll model: the app takes a cursor at the chain head, then reads new transactions after it (`listTransactions` with a sender filter). An unanchored history query scans from genesis and pruned full nodes refuse it, so deep history backfill is out of scope. The sender filter also means incoming-only activity from other senders is out of scope for this entry.
 - Keys are never committed. `.env` is git ignored; `.env.example` holds names only. Logs never print a key.
 - The web server binds to `127.0.0.1` only.
 

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { judgeBatch } from './decide.js';
 import { createDemoMemory, createLiveMemory, type MemoryStore } from './memory.js';
-import { createSuiClients, fetchSnapshot, type SuiClients } from './tatum.js';
+import { createSuiClients, fetchChainState, type SuiClients } from './tatum.js';
 import { ADDRESS_PATTERN, readSecret, resolveMemwalServerUrl, resolveNamespace, resolveNetwork, resolvePort } from './config.js';
 import { formatSui } from './rules.js';
 import { DEMO_OWNER, KNOWN_COUNTERPARTIES, KNOWN_FUNCTIONS, syntheticBatch } from './synthetic.js';
@@ -110,13 +110,14 @@ async function main(): Promise<void> {
           sendJson(res, 200, { live: false, reason: 'Set TATUM_API_KEY and WATCH_ADDRESS for the live chain read. Demo data is shown instead.' });
           return;
         }
-        const snapshot = await fetchSnapshot(clients.viaTatum, watchAddress);
+        const snapshot = await fetchChainState(clients.viaTatum, watchAddress);
         sendJson(res, 200, {
           live: true,
           network: network.name,
           chainIdentifier: snapshot.chainIdentifier,
           balanceMist: snapshot.balanceMist,
-          transactions: snapshot.transactions.map((t) => ({ digest: t.digest, functionName: t.functionName, amountMist: t.amountMist.toString() })),
+          transactions: [],
+          note: 'Transaction watching uses the poll model: take a cursor, then read new transactions after it. Run npm run live for the full round trip.',
         });
         return;
       }

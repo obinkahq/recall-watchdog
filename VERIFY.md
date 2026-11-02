@@ -45,10 +45,13 @@ Expected results:
    returns status `ok`.
 2. The app reads chain state for the watch address through the Tatum Sui
    testnet gRPC gateway (`sui-testnet-grpc.gateway.tatum.io:443`, key sent as
-   `x-api-key` metadata): chain identifier, balance, and owned transactions
-   (`listTransactions` with a sender filter). The log prints the chain
-   identifier and the counts. A 429 or unavailable error is retried with a
-   short backoff and then reported as a clear failure (not a silent pass).
+   `x-api-key` metadata): chain identifier, balance, and a head cursor. New
+   transactions are then read with the poll model (`listTransactions` with a
+   sender filter and `after` set to that cursor), because an unanchored
+   sender query scans from genesis and a pruned full node refuses it with
+   OUT_OF_RANGE (seen on both the Tatum node and the public fullnode). The
+   log prints the chain identifier and the counts. A 429 or unavailable
+   error is retried once and then reported as a clear failure (not a pass).
 3. The app stores 12 verdict memories through the relayer
    (`remember` + `waitForRememberJob`) in namespace `recall-watchdog`.
    The log prints 12 finished jobs with blob ids.
