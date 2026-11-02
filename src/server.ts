@@ -1,4 +1,5 @@
 // Web UI server. Node http only (no web framework). Binds to 127.0.0.1.
+// Each request passes the request-origin guard first (request-guard.ts).
 // Demo mode when WATCH_ADDRESS is absent. With WATCH_ADDRESS and the Tatum
 // key set, /api/live returns a cursor page of new transactions for that
 // address, judged with the rules and the recalled verdicts. A set but
@@ -18,6 +19,7 @@ import { checkMemwalKey, checkObjectId } from './keys.js';
 import { checkTatumKey } from './live-settings.js';
 import { DEMO_OWNER, KNOWN_COUNTERPARTIES, KNOWN_FUNCTIONS, syntheticBatch } from './synthetic.js';
 import { decisionView, judgeNewTransactions } from './watch.js';
+import { API_HEADERS, BODY_LIMIT_BYTES, LISTEN_HOST, TOO_LARGE, checkRequest, pageHeaders, type Refusal } from './request-guard.js';
 
 const VerdictBody = z.object({
   pattern: z.string().min(1).max(120),
@@ -30,20 +32,39 @@ const LiveQuery = z.object({ after: z.string().regex(/^[A-Za-z0-9+/]{1,256}={0,2
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(text) });
+  res.writeHead(status, { ...API_HEADERS, 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(text) });
   res.end(text);
 }
 
+// A refused request: fixed text, and the connection closes, so an unread
+// body is not taken in.
+function sendRefusal(res: ServerResponse, refusal: Refusal): void {
+  res.setHeader('connection', 'close');
+  sendJson(res, refusal.status, { error: refusal.error });
+}
+
+class BodyTooLarge extends RequestError {}
+
+// Reads at most BODY_LIMIT_BYTES, also when the body has no declared length.
+function readBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    const onData = (chunk: Buffer): void => {
+      total += chunk.length;
+      if (total <= BODY_LIMIT_BYTES) { chunks.push(chunk); return; }
+      req.off('data', onData);
+      req.pause();
+      reject(new BodyTooLarge(TOO_LARGE.error));
+    };
+    req.on('data', onData);
+    req.once('end', () => resolve(Buffer.concat(chunks)));
+    req.once('error', () => reject(new RequestError('Request body could not be read.')));
+  });
+}
+
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buf = chunk as Buffer;
-    total += buf.length;
-    if (total > 16_384) throw new RequestError('Request body is too large.');
-    chunks.push(buf);
-  }
-  const text = Buffer.concat(chunks).toString('utf8');
+  const text = (await readBody(req)).toString('utf8');
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -94,6 +115,7 @@ async function main(): Promise<void> {
   const demoCtx = { knownCounterparties: KNOWN_COUNTERPARTIES, knownFunctions: KNOWN_FUNCTIONS, watchAddress: DEMO_OWNER };
   const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
   const indexHtml = readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+  const indexHeaders = pageHeaders(indexHtml);
   // The watch starts at the chain head of the first live request.
   let start: Promise<{ chainIdentifier: string; balanceMist: string; cursor: string }> | null = null;
 
@@ -131,8 +153,13 @@ async function main(): Promise<void> {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       stage = `${req.method ?? 'GET'} ${url.pathname}`.slice(0, 40).replace(/[^A-Za-z0-9 /]/g, '');
+      const refusal = checkRequest(req.method ?? '', req.headersDistinct, port);
+      if (refusal !== null) {
+        sendRefusal(res, refusal);
+        return;
+      }
       if (req.method === 'GET' && url.pathname === '/') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.writeHead(200, { ...indexHeaders, 'content-type': 'text/html; charset=utf-8' });
         res.end(indexHtml);
         return;
       }
@@ -167,14 +194,18 @@ async function main(): Promise<void> {
       }
       sendJson(res, 404, { error: 'Not found.' });
     } catch (error) {
+      if (error instanceof BodyTooLarge) {
+        sendRefusal(res, TOO_LARGE);
+        return;
+      }
       const status = error instanceof RequestError ? 400 : error instanceof FixedError ? 502 : 500;
       sendJson(res, status, { error: failureText(error, stage) });
     }
   });
 
-  server.listen(port, '127.0.0.1', () => {
+  server.listen(port, LISTEN_HOST, () => {
     const watch = live === null ? 'demo chain data' : 'live watch on';
-    process.stdout.write(`Recall Watchdog (${mode} memory, ${watch}, network ${network.name}) at http://127.0.0.1:${port}/\n`);
+    process.stdout.write(`Recall Watchdog (${mode} memory, ${watch}, network ${network.name}) at http://${LISTEN_HOST}:${port}/\n`);
   });
 }
 

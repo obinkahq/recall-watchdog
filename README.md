@@ -100,7 +100,7 @@ The tests run the built entry points as real processes with local stubs in place
 - Watching uses the poll model: the app takes a cursor at the chain head, then reads new transactions after it (`listTransactions` with a sender filter). An unanchored history query scans from genesis and pruned full nodes refuse it, so deep history backfill is out of scope. The sender filter also means incoming-only activity from other senders is out of scope for this entry.
 - Keys are never committed. `.env` is git ignored; `.env.example` holds names only. Logs never print a key, and no output or HTTP response repeats the text of a dependency error (such an error can hold key text): each entry point prints fixed text that names the failed step.
 - Amount rules count SUI balance changes only. Other coin types have their own decimals and value, so a token transfer does not get a `large-amount` flag.
-- The web server binds to `127.0.0.1` only.
+- The web server binds to `127.0.0.1` only. It answers only requests for its own address (`Host` is `127.0.0.1:PORT` or `localhost:PORT`) and refuses a request from another origin (an `Origin` header that is not its own, also `null`) with HTTP 403. A write needs `Content-Type: application/json`; other types get HTTP 415. The server sends no CORS header, and its page cannot be shown in a frame. So another web page in the same browser cannot store a verdict or read the watch data.
 
 ## Project shape
 
