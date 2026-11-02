@@ -194,6 +194,19 @@ test('guard: a huge body is refused, not read to the end, and not stored', async
   assert.equal((await rawRequest(port, { path: '/api/demo', headers: [['Host', OWN]] })).status, 200, 'and still answers');
 });
 
+test('guard: a refused request closes the connection, so its body is not taken in', async () => {
+  const cases = [
+    ['cross-site text/plain', headers(OWN, EVIL, 'text/plain'), 403],
+    ['huge declared JSON body', headers(OWN, OWN_ORIGIN, 'application/json'), 413],
+  ];
+  for (const [label, sent, status] of cases) {
+    const res = await rawRequest(port, { method: 'POST', path: '/api/verdict', headers: sent, declaredLength: 1024 * 1024 * 1024, keepAlive: true, timeout: 3_000 });
+    assert.equal(res.status, status, label);
+    assert.equal(res.headers.connection, 'close', label);
+    assert.equal(res.end, 'closed', `${label}: the server closed the connection without the body`);
+  }
+});
+
 test('guard: the server listens on 127.0.0.1 only', { skip: process.platform !== 'linux' && 'needs /proc/net' }, () => {
   const hexPort = port.toString(16).toUpperCase().padStart(4, '0');
   const listening = ['tcp', 'tcp6'].flatMap((file) => readFileSync(`/proc/net/${file}`, 'utf8').trim().split('\n').slice(1)

@@ -15,7 +15,9 @@ function parse(text) {
 
 // headers: [name, value] pairs. body: text. declaredLength: a Content-Length
 // to send instead of the real one. chunked: send the body in chunks.
-export function rawRequest(port, { method = 'GET', path = '/', headers = [], body = '', http10 = false, declaredLength = null, chunked = false } = {}) {
+// keepAlive: do not ask the server to close. The result field `end` says
+// how the connection ended: 'closed' by the server, or 'timeout'.
+export function rawRequest(port, { method = 'GET', path = '/', headers = [], body = '', http10 = false, declaredLength = null, chunked = false, keepAlive = false, timeout = 10_000 } = {}) {
   return new Promise((resolve) => {
     const socket = net.connect(port, '127.0.0.1');
     const data = [];
@@ -26,9 +28,9 @@ export function rawRequest(port, { method = 'GET', path = '/', headers = [], bod
       clearTimeout(timer);
       socket.destroy();
       const text = Buffer.concat(data).toString('latin1');
-      resolve(text === '' ? { status: 0, error: error ?? 'closed', headers: {}, body: '' } : parse(text));
+      resolve(text === '' ? { status: 0, error: error ?? 'closed', end: error ?? 'closed', headers: {}, body: '' } : { ...parse(text), end: error ?? 'closed' });
     };
-    const timer = setTimeout(() => finish('timeout'), 10_000);
+    const timer = setTimeout(() => finish('timeout'), timeout);
     socket.on('data', (chunk) => data.push(chunk));
     socket.on('error', (error) => finish(error.code ?? 'error'));
     socket.on('close', () => finish(null));
@@ -38,7 +40,7 @@ export function rawRequest(port, { method = 'GET', path = '/', headers = [], bod
       if (chunked) head += 'Transfer-Encoding: chunked\r\n';
       else if (declaredLength !== null) head += `Content-Length: ${declaredLength}\r\n`;
       else if (body !== '') head += `Content-Length: ${Buffer.byteLength(body)}\r\n`;
-      socket.write(`${head}Connection: close\r\n\r\n`);
+      socket.write(`${head}${keepAlive ? '' : 'Connection: close\r\n'}\r\n`);
       if (chunked) {
         for (let at = 0; at < body.length; at += 8192) {
           const part = body.slice(at, at + 8192);
