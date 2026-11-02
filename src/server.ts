@@ -1,7 +1,8 @@
 // Web UI server. Node http only (no web framework). Binds to 127.0.0.1.
-// Demo mode by default. With the live keys set, /api/snapshot also returns
-// the Tatum chain read. Every request body is checked with zod. Error
-// responses carry fixed text only.
+// Demo mode when WATCH_ADDRESS is absent. With WATCH_ADDRESS and the Tatum
+// key set, /api/snapshot also returns the Tatum chain read. A set but
+// malformed WATCH_ADDRESS stops startup (no silent demo fallback). Every
+// request body is checked with zod. Error responses carry fixed text only.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +11,7 @@ import { z } from 'zod';
 import { judgeBatch } from './decide.js';
 import { createDemoMemory, createLiveMemory, type MemoryStore } from './memory.js';
 import { createSuiClients, fetchChainState, fetchTransactionsByDigest, type SuiClients } from './tatum.js';
-import { ADDRESS_PATTERN, readSecret, resolveMemwalServerUrl, resolveNamespace, resolveNetwork, resolvePort, type NetworkConfig } from './config.js';
+import { readSecret, resolveMemwalServerUrl, resolveNamespace, resolveNetwork, resolveOptionalWatchAddress, resolvePort, type NetworkConfig } from './config.js';
 import { FixedError, RequestError, failureText, installFixedCrashHandlers } from './errors.js';
 import { checkMemwalKey, checkObjectId } from './keys.js';
 import { checkTatumKey } from './live-settings.js';
@@ -59,6 +60,9 @@ function pickMemory(network: NetworkConfig): { store: MemoryStore; mode: 'demo' 
     });
     return { store, mode: 'live' };
   }
+  if (key !== undefined || accountId !== undefined) {
+    throw new FixedError('Set both MEMWAL_KEY and MEMWAL_ACCOUNT_ID for live memory, or neither for demo memory.');
+  }
   return { store: createDemoMemory(namespace), mode: 'demo' };
 }
 
@@ -67,11 +71,14 @@ interface LiveWatch {
   readonly watchAddress: string;
 }
 
+// Live chain mode is on when WATCH_ADDRESS is set. It then needs the key.
 function pickLiveWatch(network: NetworkConfig): LiveWatch | null {
+  const watchAddress = resolveOptionalWatchAddress();
+  if (watchAddress === null) return null;
   const tatumKey = readSecret('TATUM_API_KEY');
-  const watchAddressRaw = process.env.WATCH_ADDRESS?.trim();
-  const watchAddress = watchAddressRaw !== undefined && ADDRESS_PATTERN.test(watchAddressRaw) ? watchAddressRaw.toLowerCase() : null;
-  if (tatumKey === undefined || watchAddress === null) return null;
+  if (tatumKey === undefined) {
+    throw new FixedError('WATCH_ADDRESS is set, so live mode needs TATUM_API_KEY or TATUM_API_KEY_FILE. Unset WATCH_ADDRESS for demo mode.');
+  }
   return { clients: createSuiClients(network, checkTatumKey(tatumKey)), watchAddress };
 }
 
@@ -127,7 +134,7 @@ async function main(): Promise<void> {
       }
       if (req.method === 'GET' && url.pathname === '/api/snapshot') {
         if (live === null) {
-          sendJson(res, 200, { live: false, reason: 'Set TATUM_API_KEY and WATCH_ADDRESS for the live chain read. Demo data is shown instead.' });
+          sendJson(res, 200, { live: false, reason: 'Demo mode: WATCH_ADDRESS is not set. Set WATCH_ADDRESS and TATUM_API_KEY for the live chain read.' });
           return;
         }
         const snapshot = await fetchChainState(live.clients.viaTatum, live.watchAddress);
@@ -152,7 +159,8 @@ async function main(): Promise<void> {
   });
 
   server.listen(port, '127.0.0.1', () => {
-    process.stdout.write(`Recall Watchdog (${mode} memory, network ${network.name}) at http://127.0.0.1:${port}/\n`);
+    const watch = live === null ? 'demo chain data' : 'live chain read';
+    process.stdout.write(`Recall Watchdog (${mode} memory, ${watch}, network ${network.name}) at http://127.0.0.1:${port}/\n`);
   });
 }
 

@@ -103,6 +103,15 @@ export function resolveWatchAddress(): string {
   return address.toLowerCase();
 }
 
+// For the web server: null only when WATCH_ADDRESS is absent (demo mode by
+// choice). A set but malformed value is an error, never a silent fallback.
+export function resolveOptionalWatchAddress(): string | null {
+  const address = envValue('WATCH_ADDRESS');
+  if (address === undefined) return null;
+  if (!ADDRESS_PATTERN.test(address)) throw new FixedError(WATCH_ADDRESS_INVALID);
+  return address.toLowerCase();
+}
+
 export function resolveNamespace(): string {
   return envValue('MEMWAL_NAMESPACE') ?? DEFAULT_NAMESPACE;
 }
