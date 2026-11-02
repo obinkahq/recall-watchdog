@@ -1,0 +1,141 @@
+// Tatum Sui client. Testnet is gRPC only on Tatum, so both networks use the
+// Sui TypeScript SDK gRPC client over native gRPC (HTTP/2) to the Tatum
+// gateway. The API key is sent as `x-api-key` metadata. This file never
+// prints the key. On mainnet Tatum also offers a JSON-RPC gateway; this app
+// uses gRPC on both networks so one code path serves both (see README).
+import { credentials } from '@grpc/grpc-js';
+import { GrpcTransport } from '@protobuf-ts/grpc-transport';
+import { SuiGrpcClient } from '@mysten/sui/grpc';
+import type { NetworkConfig } from './config.js';
+import type { WatchTransaction } from './types.js';
+
+export interface ChainSnapshot {
+  readonly chainIdentifier: string;
+  readonly balanceMist: string;
+  readonly transactions: readonly WatchTransaction[];
+  readonly hasNextPage: boolean;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Retry once after a short wait on rate limit or temporary unavailability.
+export async function withRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const code = String((error as { code?: unknown }).code ?? '');
+    const message = String((error as { message?: unknown }).message ?? '');
+    const retryable = code === 'UNAVAILABLE' || code === 'RESOURCE_EXHAUSTED' || message.includes('429');
+    if (!retryable) throw new Error(`${label} failed (${code || 'error'}): ${message.slice(0, 200)}`);
+    await sleep(5_000);
+    try {
+      return await run();
+    } catch (secondError) {
+      const code2 = String((secondError as { code?: unknown }).code ?? 'error');
+      throw new Error(`${label} failed after one retry (${code2})`);
+    }
+  }
+}
+
+export interface SuiClients {
+  readonly viaTatum: SuiGrpcClient;
+  readonly viaPublic: SuiGrpcClient;
+  close(): void;
+}
+
+export function createSuiClients(network: NetworkConfig, tatumApiKey: string): SuiClients {
+  const transport = new GrpcTransport({
+    host: network.tatumGrpcHost,
+    channelCredentials: credentials.createSsl(),
+    meta: { 'x-api-key': tatumApiKey },
+  });
+  const viaTatum = new SuiGrpcClient({ network: network.name, transport });
+  const viaPublic = new SuiGrpcClient({ network: network.name, baseUrl: network.publicGrpcUrl });
+  return {
+    viaTatum,
+    viaPublic,
+    close() {
+      transport.close();
+    },
+  };
+}
+
+interface SdkBalanceChange {
+  readonly coinType: string;
+  readonly address: string;
+  readonly amount: string;
+}
+
+interface SdkCommand {
+  readonly $kind?: string;
+  readonly MoveCall?: { readonly package: string; readonly module: string; readonly function: string };
+}
+
+interface SdkTxResult {
+  readonly $kind: string;
+  readonly Transaction?: SdkTx;
+  readonly FailedTransaction?: SdkTx;
+}
+
+interface SdkTx {
+  readonly digest: string;
+  readonly timestampMs: number | null;
+  readonly balanceChanges?: readonly SdkBalanceChange[];
+  readonly transaction?: { readonly sender: string | null; readonly commands: readonly SdkCommand[] };
+}
+
+// Map one SDK transaction to the shape the rules judge. The amount is the
+// largest absolute SUI balance change. The counterparty is the first balance
+// change address that is not the watched address.
+export function toWatchTransaction(result: SdkTxResult, watchAddress: string): WatchTransaction | null {
+  const tx = result.Transaction ?? result.FailedTransaction;
+  if (tx === undefined) return null;
+  const changes = tx.balanceChanges ?? [];
+  let amount = 0n;
+  let coinType = '0x2::sui::SUI';
+  let counterparty: string | null = null;
+  for (const change of changes) {
+    const value = BigInt(change.amount);
+    const abs = value < 0n ? -value : value;
+    if (abs > amount) {
+      amount = abs;
+      coinType = change.coinType;
+    }
+    if (counterparty === null && change.address.toLowerCase() !== watchAddress.toLowerCase()) {
+      counterparty = change.address.toLowerCase();
+    }
+  }
+  const firstCall = (tx.transaction?.commands ?? []).find((c) => c.MoveCall !== undefined)?.MoveCall;
+  return {
+    digest: tx.digest,
+    sender: tx.transaction?.sender ?? watchAddress,
+    counterparty,
+    amountMist: amount,
+    coinType,
+    packageId: firstCall?.package ?? null,
+    moduleName: firstCall?.module ?? null,
+    functionName: firstCall?.function ?? null,
+    timestampMs: tx.timestampMs,
+    status: result.$kind === 'Transaction' ? 'success' : 'failure',
+  };
+}
+
+export async function fetchSnapshot(client: SuiGrpcClient, watchAddress: string, limit = 25): Promise<ChainSnapshot> {
+  const { chainIdentifier } = await withRetry('getChainIdentifier', () => client.core.getChainIdentifier());
+  const { balance } = await withRetry('getBalance', () => client.core.getBalance({ owner: watchAddress, coinType: '0x2::sui::SUI' }));
+  const page = await withRetry('listTransactions', () =>
+    client.listTransactions({
+      filter: { sender: watchAddress },
+      limit,
+      order: 'descending',
+      include: { transaction: true, balanceChanges: true, effects: true },
+    }),
+  );
+  const transactions = page.transactions.flatMap((r) => {
+    const mapped = toWatchTransaction(r as unknown as SdkTxResult, watchAddress);
+    return mapped === null ? [] : [mapped];
+  });
+  return { chainIdentifier, balanceMist: balance.balance, transactions, hasNextPage: page.hasNextPage };
+}

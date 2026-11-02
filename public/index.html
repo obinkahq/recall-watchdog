@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recall Watchdog — a wallet watchdog that learns</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 52rem; padding: 0 1rem; color: #17202a; }
+  h1 { font-size: 1.6rem; } .muted { color: #5d6d7e; }
+  .card { border: 1px solid #d5dbdb; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+  .flag { border-left: 4px solid #c0392b; } .suppressed { border-left: 4px solid #229954; }
+  .escalated { border-left: 4px solid #7d3c98; } .clear { border-left: 4px solid #aab7b8; }
+  button { margin: 0.2rem 0.4rem 0.2rem 0; padding: 0.35rem 0.7rem; cursor: pointer; }
+  code { background: #f2f3f4; padding: 0.1rem 0.3rem; border-radius: 4px; }
+  .mem { font-size: 0.85rem; background: #fef9e7; border-radius: 4px; padding: 0.3rem 0.5rem; margin-top: 0.3rem; }
+</style>
+</head>
+<body>
+<h1>Recall Watchdog</h1>
+<p class="muted">A watchdog for Sui wallet activity. Rules raise flags. Your verdicts are stored in Walrus Memory. Recalled verdicts then suppress or escalate later flags — with the memory shown for each decision.</p>
+<p id="meta">Loading…</p>
+<p><button id="reload">Re-judge the batch</button> <button id="snapshot">Read chain via Tatum</button></p>
+<div id="chain"></div>
+<div id="list"></div>
+<script>
+const list = document.getElementById('list');
+const meta = document.getElementById('meta');
+const chain = document.getElementById('chain');
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+async function load() {
+  const res = await fetch('/api/demo');
+  const data = await res.json();
+  meta.textContent = `Mode: ${data.mode} memory · Network: ${data.network} · Memories stored: ${data.memoryCount} · Active flags: ${data.activeFlags} · Suppressed: ${data.suppressedFlags} · Escalated: ${data.escalatedFlags}`;
+  list.innerHTML = data.decisions.map(d => {
+    const flags = d.flags.map(f => `<div>Flag <code>${esc(f.rule)}</code>: ${esc(f.reason)}
+      <button data-pattern="${esc(f.pattern)}" data-kind="expected">Mark expected</button>
+      <button data-pattern="${esc(f.pattern)}" data-kind="important">Mark important</button></div>`).join('');
+    const mems = d.memories.map(m => `<div class="mem">Memory behind this decision: ${esc(m.text)}</div>`).join('');
+    return `<div class="card ${esc(d.state)}"><strong>${esc(d.digest)}</strong> · ${esc(d.amountSui)} SUI · function ${esc(d.functionName || '-')}<br>
+      Decision: <strong>${esc(d.state)}</strong> — ${esc(d.explanation)}${flags}${mems}</div>`;
+  }).join('');
+  list.querySelectorAll('button[data-pattern]').forEach(btn => btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Storing…';
+    await fetch('/api/verdict', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pattern: btn.dataset.pattern, kind: btn.dataset.kind, note: 'set in the web UI' }) });
+    await load();
+  }));
+}
+document.getElementById('reload').addEventListener('click', load);
+document.getElementById('snapshot').addEventListener('click', async () => {
+  chain.textContent = 'Reading…';
+  const res = await fetch('/api/snapshot');
+  const data = await res.json();
+  chain.innerHTML = data.live
+    ? `<div class="card">Chain ${esc(data.chainIdentifier)} · Balance ${esc(data.balanceMist)} MIST · Transactions read via Tatum: ${data.transactions.length}</div>`
+    : `<div class="card">${esc(data.reason)}</div>`;
+});
+load().catch(e => { meta.textContent = 'Load failed: ' + e.message; });
+</script>
+</body>
+</html>
