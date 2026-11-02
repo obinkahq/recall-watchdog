@@ -2,6 +2,7 @@
 // with the SDK stubs and the network guard, and look for leaked key text.
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,9 +37,21 @@ export function stubCalls(tmp) {
   }
 }
 
+// A port that the system reports free on the loopback host just now.
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
 // Start the web server with the stubs. Resolves when it listens.
 export async function startServer(env, tmp = makeTmp('server')) {
-  const port = 20_000 + Math.floor(Math.random() * 20_000);
+  const port = await freePort();
   const child = spawn(process.execPath, ['--import', HOOKS, path.join(REPO, 'dist', 'server.js')], {
     cwd: REPO,
     env: baseEnv(tmp, { PORT: String(port), ...env }),
