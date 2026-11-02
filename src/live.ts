@@ -2,14 +2,18 @@
 // 1. Check every setting and key (no network). 2. Relayer health. 3. Tatum
 // chain snapshot and head cursor. 4. Two small self-transfers (public submit
 // path) so the Tatum read path sees real transactions. 5. Store 12 verdict
-// memories. 6. Recall related verdicts. 7. Count. 8. Re-read the transfers.
+// memories. 6. Recall related verdicts. 7. Count. 8. Read the new
+// transactions after the cursor through Tatum and judge each one with the
+// rules and the recalled verdicts, then print each decision and its memories.
 // No secret value is printed, and no dependency error message is printed.
 import type { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
-import { createSuiClients, fetchChainState, fetchNewTransactions, withRetry } from './tatum.js';
+import { createSuiClients, fetchChainState, withRetry } from './tatum.js';
 import { createLiveMemory } from './memory.js';
 import { readLiveSettings } from './live-settings.js';
 import { FixedError, failureText, installFixedCrashHandlers } from './errors.js';
+import { printJudgement } from './report.js';
+import { judgeNewTransactions } from './watch.js';
 import { SCRIPTED_VERDICTS } from './synthetic.js';
 import type { Verdict } from './types.js';
 
@@ -107,15 +111,16 @@ async function main(): Promise<void> {
     const count = await memory.count();
     log(`memory count in namespace=${count}`);
 
+    stage = 'Tatum poll and judge';
+    const page = await judgeNewTransactions(clients.viaTatum, watchAddress, before.cursor, memory);
+    const judged = page.judgement.decisions;
+    log(`tatum poll after the cursor: newTx=${judged.length} cursorAdvanced=${page.nextCursor !== before.cursor ? 'yes' : 'no'}`);
+    printJudgement('Live transactions after the cursor (Tatum read, rules + recalled verdicts)', page.judgement);
+
     if (transferDigests.length > 0) {
-      stage = 'Tatum poll';
-      const fresh = await fetchNewTransactions(clients.viaTatum, watchAddress, before.cursor);
-      const digests = new Set(fresh.map((t) => t.digest));
+      const digests = new Set(judged.map((d) => d.tx.digest));
       const found = transferDigests.filter((d) => digests.has(d));
-      log(`tatum poll after transfer: newTx=${fresh.length} foundNew=${found.length}/${transferDigests.length}`);
-      for (const tx of fresh) {
-        log(`  new tx ${tx.digest} fn=${tx.functionName ?? '-'} amountMist=${tx.amountMist.toString()}`);
-      }
+      log(`tatum poll after transfer: foundNew=${found.length}/${transferDigests.length}`);
       if (found.length === 0) throw new FixedError('Tatum poll did not return the new self-transfer transactions yet (indexing lag). Re-run npm run live.');
     }
 

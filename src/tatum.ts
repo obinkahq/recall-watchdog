@@ -42,6 +42,9 @@ export async function withRetry<T>(label: string, run: () => Promise<T>): Promis
   }
 }
 
+// The client calls this app makes. SuiGrpcClient has them; a test stub can too.
+export type ChainReader = Pick<SuiGrpcClient, 'core' | 'listTransactions'>;
+
 export interface SuiClients {
   readonly viaTatum: SuiGrpcClient;
   readonly viaPublic: SuiGrpcClient;
@@ -137,20 +140,27 @@ export function toWatchTransaction(result: SdkTxResult, watchAddress: string): W
 // (OUT_OF_RANGE). So the watchdog takes a cursor at the chain head first
 // (takeCursor), then asks only for matching transactions after that cursor
 // (fetchNewTransactions). This is the supported way to watch an address.
-export async function takeCursor(client: SuiGrpcClient): Promise<string> {
+export async function takeCursor(client: ChainReader): Promise<string> {
   const head = await withRetry('takeCursor', () => client.listTransactions({ limit: 1, order: 'descending' }));
   if (head.startCursor === null) throw new FixedError('takeCursor failed: the chain head returned no cursor');
   return head.startCursor;
 }
 
-export async function fetchChainState(client: SuiGrpcClient, watchAddress: string): Promise<ChainSnapshot> {
+export async function fetchChainState(client: ChainReader, watchAddress: string): Promise<ChainSnapshot> {
   const { chainIdentifier } = await withRetry('getChainIdentifier', () => client.core.getChainIdentifier());
-  const { balance } = await withRetry('getBalance', () => client.core.getBalance({ owner: watchAddress, coinType: '0x2::sui::SUI' }));
+  const { balance } = await withRetry('getBalance', () => client.core.getBalance({ owner: watchAddress, coinType: SUI_COIN_TYPE }));
   const cursor = await takeCursor(client);
   return { chainIdentifier, balanceMist: balance.balance, transactions: [], hasNextPage: false, cursor };
 }
 
-export async function fetchNewTransactions(client: SuiGrpcClient, watchAddress: string, afterCursor: string, limit = 25): Promise<readonly WatchTransaction[]> {
+export interface TransactionPage {
+  readonly transactions: readonly WatchTransaction[];
+  // Pass as afterCursor for the next page. Equal to the input cursor when
+  // the node returned no newer cursor (nothing new yet).
+  readonly nextCursor: string;
+}
+
+export async function fetchNewTransactions(client: ChainReader, watchAddress: string, afterCursor: string, limit = 25): Promise<TransactionPage> {
   const page = await withRetry('listTransactions', () =>
     client.listTransactions({
       filter: { sender: watchAddress },
@@ -159,10 +169,11 @@ export async function fetchNewTransactions(client: SuiGrpcClient, watchAddress: 
       include: { transaction: true, balanceChanges: true, effects: true },
     }),
   );
-  return page.transactions.flatMap((r) => {
+  const transactions = page.transactions.flatMap((r) => {
     const mapped = toWatchTransaction(r as unknown as SdkTxResult, watchAddress);
     return mapped === null ? [] : [mapped];
   });
+  return { transactions, nextCursor: page.endCursor ?? afterCursor };
 }
 
 export async function fetchTransactionsByDigest(client: SuiGrpcClient, watchAddress: string, digests: readonly string[]): Promise<readonly WatchTransaction[]> {
