@@ -5,6 +5,10 @@
 // - Every request: the Host header is this server's own local address
 //   (127.0.0.1:PORT or localhost:PORT), and an Origin header, when sent, is
 //   the origin of that same address. 'null' and other origins are refused.
+// - Every request except a load of the page itself: when the browser marks
+//   it as from another site or another origin (Sec-Fetch-Site), it is
+//   refused. An image or script tag on another site sends no Origin header,
+//   and such a GET would make the server call Tatum or the memory relayer.
 // - Every method other than GET and HEAD: the body is application/json
 //   (the only parameter allowed is charset=utf-8), so a cross-site request
 //   needs a preflight, and the server answers no preflight with allow
@@ -18,6 +22,7 @@ export const BODY_LIMIT_BYTES = 16_384;
 
 const LOCAL_NAMES: readonly string[] = [LISTEN_HOST, 'localhost'];
 const READ_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD']);
+const OWN_FETCH_SITES: ReadonlySet<string> = new Set(['same-origin', 'none']);
 
 export interface Refusal {
   readonly status: 403 | 413 | 415;
@@ -26,6 +31,7 @@ export interface Refusal {
 
 const HOST_REFUSED: Refusal = { status: 403, error: 'Refused: this server answers only requests for its own local address.' };
 const ORIGIN_REFUSED: Refusal = { status: 403, error: 'Refused: requests from another origin are not allowed.' };
+const SITE_REFUSED: Refusal = { status: 403, error: 'Refused: the browser marks this request as from another site or origin.' };
 const TYPE_REFUSED: Refusal = { status: 415, error: 'Refused: send the request body as Content-Type application/json.' };
 export const TOO_LARGE: Refusal = { status: 413, error: 'Request body is too large.' };
 
@@ -59,13 +65,20 @@ function declaredTooLarge(headers: HeaderLists): boolean {
   return value === null || !/^\d{1,9}$/.test(value) || Number(value) > BODY_LIMIT_BYTES;
 }
 
+// A load of the page itself may come from a link on another site.
+function isPageLoad(method: string, pathname: string): boolean {
+  return READ_METHODS.has(method) && pathname === '/';
+}
+
 // Null when the request may go on to the routes, else the refusal to send.
 // headers: the request headers as lists (IncomingMessage.headersDistinct).
-export function checkRequest(method: string, headers: HeaderLists, port: number): Refusal | null {
+export function checkRequest(method: string, pathname: string, headers: HeaderLists, port: number): Refusal | null {
   const host = onlyValue(headers, 'host')?.toLowerCase() ?? null;
   if (host === null || !hostForms(port).includes(host)) return HOST_REFUSED;
   const origins = headers.origin;
   if (origins !== undefined && (origins.length !== 1 || origins[0] !== originOf(host, port))) return ORIGIN_REFUSED;
+  const sites = headers['sec-fetch-site'];
+  if (sites !== undefined && !isPageLoad(method, pathname) && (sites.length !== 1 || !OWN_FETCH_SITES.has(sites[0] as string))) return SITE_REFUSED;
   if (READ_METHODS.has(method)) return null;
   const type = onlyValue(headers, 'content-type');
   if (type === null || !isJsonType(type)) return TYPE_REFUSED;

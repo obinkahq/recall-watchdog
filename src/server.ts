@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       stage = `${req.method ?? 'GET'} ${url.pathname}`.slice(0, 40).replace(/[^A-Za-z0-9 /]/g, '');
-      const refusal = checkRequest(req.method ?? '', req.headersDistinct, port);
+      const refusal = checkRequest(req.method ?? '', url.pathname, req.headersDistinct, port);
       if (refusal !== null) {
         sendRefusal(res, refusal);
         return;

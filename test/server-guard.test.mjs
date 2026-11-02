@@ -115,6 +115,26 @@ test('guard: a rebinding Host or a foreign Origin reads no route; the page can r
   assert.equal(withOrigin.status, 200);
 });
 
+test('guard: a request the browser marks as from another site reads no API route', async () => {
+  const recalls = () => server.calls().filter((c) => c.method === 'recall').length;
+  const get = (route, site) => rawRequest(port, { path: route, headers: [['Host', OWN], ['Sec-Fetch-Site', site]] });
+  const before = recalls();
+  for (const site of ['cross-site', 'same-site']) {
+    for (const route of ['/api/demo', '/api/live']) assert.equal((await get(route, site)).status, 403, `${site} ${route}`);
+  }
+  assert.equal(recalls(), before, 'no memory recall for a refused request');
+  assert.equal((await get('/', 'cross-site')).status, 200, 'a link from another site still opens the page');
+  assert.equal((await get('/api/demo', 'same-origin')).status, 200, 'the page itself');
+  assert.ok(recalls() > before, 'the page request did recall (the counter works)');
+  assert.equal((await get('/api/demo', 'none')).status, 200, 'an address typed by the user');
+  const sent = { headers: [...headers(OWN, OWN_ORIGIN, 'application/json'), ['Sec-Fetch-Site', 'cross-site']] };
+  const marked = await send(sent);
+  assert.equal(marked.res.status, 403, 'a write marked as from another site');
+  assert.equal(marked.written, 0);
+  const twice = await rawRequest(port, { path: '/api/demo', headers: [['Host', OWN], ['Sec-Fetch-Site', 'same-origin'], ['Sec-Fetch-Site', 'cross-site']] });
+  assert.equal(twice.status, 403, 'two Sec-Fetch-Site headers');
+});
+
 test('guard: a preflight gets no allow headers', async () => {
   const preflight = (origin) => rawRequest(port, {
     method: 'OPTIONS', path: '/api/verdict',
@@ -216,15 +236,23 @@ test('guard: the server listens on 127.0.0.1 only', { skip: process.platform !==
 
 test('guard rules in process: port 80 forms, types and declared length', () => {
   const lists = (pairs) => Object.fromEntries(pairs.map(([name, value]) => [name, [value]]));
-  assert.equal(checkRequest('GET', lists([['host', '127.0.0.1']]), 80), null);
-  assert.equal(checkRequest('POST', lists([['host', 'localhost'], ['origin', 'http://localhost'], ['content-type', 'application/json']]), 80), null);
-  assert.equal(checkRequest('POST', lists([['host', 'localhost'], ['origin', 'http://localhost:80'], ['content-type', 'application/json']]), 80)?.status, 403);
-  assert.equal(checkRequest('GET', lists([['host', '127.0.0.1:4173']]), 4173), null);
-  assert.equal(checkRequest('HEAD', lists([['host', '127.0.0.1:4173']]), 4173), null);
-  const post = (extra) => checkRequest('POST', lists([['host', '127.0.0.1:4173'], ['content-type', 'application/json'], ...extra]), 4173)?.status ?? 200;
+  assert.equal(checkRequest('GET', '/', lists([['host', '127.0.0.1']]), 80), null);
+  assert.equal(checkRequest('POST', '/api/verdict', lists([['host', 'localhost'], ['origin', 'http://localhost'], ['content-type', 'application/json']]), 80), null);
+  assert.equal(checkRequest('POST', '/api/verdict', lists([['host', 'localhost'], ['origin', 'http://localhost:80'], ['content-type', 'application/json']]), 80)?.status, 403);
+  assert.equal(checkRequest('GET', '/api/live', lists([['host', '127.0.0.1:4173']]), 4173), null);
+  assert.equal(checkRequest('HEAD', '/', lists([['host', '127.0.0.1:4173']]), 4173), null);
+  const post = (extra) => checkRequest('POST', '/api/verdict', lists([['host', '127.0.0.1:4173'], ['content-type', 'application/json'], ...extra]), 4173)?.status ?? 200;
   assert.equal(post([]), 200);
   assert.equal(post([['content-length', String(BODY_LIMIT_BYTES)]]), 200);
   assert.equal(post([['content-length', String(BODY_LIMIT_BYTES + 1)]]), 413);
-  assert.equal(checkRequest('POST', { host: ['127.0.0.1:4173'], 'content-type': ['application/json'], 'content-length': ['5', '5'] }, 4173)?.status, 413);
-  assert.equal(checkRequest('OPTIONS', lists([['host', '127.0.0.1:4173']]), 4173)?.status, 415);
+  assert.equal(checkRequest('POST', '/api/verdict', { host: ['127.0.0.1:4173'], 'content-type': ['application/json'], 'content-length': ['5', '5'] }, 4173)?.status, 413);
+  assert.equal(checkRequest('OPTIONS', '/api/verdict', lists([['host', '127.0.0.1:4173']]), 4173)?.status, 415);
+  const site = (method, route, value) => checkRequest(method, route, lists([['host', '127.0.0.1:4173'], ['sec-fetch-site', value]]), 4173)?.status ?? 200;
+  assert.equal(site('GET', '/', 'cross-site'), 200, 'a link from another site opens the page');
+  assert.equal(site('HEAD', '/', 'cross-site'), 200);
+  assert.equal(site('GET', '/api/live', 'cross-site'), 403);
+  assert.equal(site('GET', '/api/demo', 'same-site'), 403);
+  assert.equal(site('GET', '/api/demo', 'same-origin'), 200);
+  assert.equal(site('GET', '/api/demo', 'none'), 200);
+  assert.equal(site('GET', '/x', 'cross-site'), 403);
 });

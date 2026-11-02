@@ -141,6 +141,8 @@ test (F8). These expected results are added. The earlier results stay in force.
   needs a `Host` header of `127.0.0.1:PORT` or `localhost:PORT` (a DNS
   rebinding name gets HTTP 403). An `Origin` header, when sent, must be the
   origin of that same address (another origin and `null` get HTTP 403). A
+  request that the browser marks with `Sec-Fetch-Site` other than
+  `same-origin` or `none` gets HTTP 403, except a load of the page `/`. A
   request with a method other than GET or HEAD needs
   `Content-Type: application/json` (text/plain, form, multipart and a missing
   type get HTTP 415). A refused request stores nothing. No response carries an
@@ -158,6 +160,7 @@ test (F8). These expected results are added. The earlier results stay in force.
 
 Oracles: `test/server-guard.test.mjs` sends raw HTTP requests and counts
 memory writes in the stub log; `test/ui-browser.mjs` opens a page of another
-site in the same browser and checks that it stores nothing;
+site in the same browser and checks that it stores nothing and makes the
+server call nothing;
 `test/server-startup.test.mjs`, `test/demo-boundary.test.mjs` and
 `test/amount-limit.test.mjs` hold the expected texts and boundary values.

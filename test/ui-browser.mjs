@@ -49,7 +49,11 @@ try {
   assert.deepEqual(polls, [null, 'AAAA', 'AAAA', 'AAAB'], 'the button asks for the page after nextCursor');
 
   // Another site (localhost on another port) tries a text/plain form post,
-  // a no-cors text/plain fetch and a JSON fetch that needs a preflight.
+  // a no-cors text/plain fetch, a JSON fetch that needs a preflight, and
+  // image tags that would make the server poll Tatum or recall memories.
+  const count = (method) => server.calls().filter((c) => c.method === method).length;
+  const pollsBefore = count('listTransactions');
+  const recallsBefore = count('recall');
   const writesBefore = server.calls().filter((c) => c.method === 'rememberAndWait').length;
   assert.equal(writesBefore, 1, 'the click on the page stored one verdict');
   const target = `${server.url}/api/verdict`;
@@ -62,6 +66,7 @@ const tries = [
   new Promise((resolve) => { document.querySelector('iframe').addEventListener('load', resolve); document.getElementById('f').submit(); setTimeout(resolve, 3000); }),
   fetch('${target}', { method: 'POST', mode: 'no-cors', headers: { 'content-type': 'text/plain' }, body: verdict }),
   fetch('${target}', { method: 'POST', headers: { 'content-type': 'application/json' }, body: verdict }),
+  ...['/api/live', '/api/demo'].map((route) => new Promise((resolve) => { const img = new Image(); img.onload = resolve; img.onerror = resolve; img.src = '${server.url}' + route; })),
 ];
 Promise.allSettled(tries).then((r) => { window.attackDone = r.map((x) => x.status).join(','); });
 </script>`;
@@ -79,6 +84,8 @@ Promise.allSettled(tries).then((r) => { window.attackDone = r.map((x) => x.statu
   await new Promise((resolve) => setTimeout(resolve, 500));
   const writesAfter = server.calls().filter((c) => c.method === 'rememberAndWait').length;
   assert.equal(writesAfter, writesBefore, 'no verdict stored by another site');
+  assert.equal(count('listTransactions'), pollsBefore, 'no Tatum poll for another site');
+  assert.equal(count('recall'), recallsBefore, 'no memory recall for another site');
   // The page reads the live list again: the row is still a plain flag.
   await page.evaluate(`loadLive(false).then(() => { window.reread = true; })`);
   await page.waitFor('window.reread === true', 'live list read again');
