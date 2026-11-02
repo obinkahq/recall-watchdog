@@ -87,22 +87,29 @@ interface SdkTx {
   readonly transaction?: { readonly sender: string | null; readonly commands: readonly SdkCommand[] };
 }
 
+export const SUI_COIN_TYPE = '0x2::sui::SUI';
+const SUI_COIN_TYPE_PATTERN = /^0x0*2::sui::SUI$/;
+
+// True for the SUI coin type in short (0x2) or long (0x00..02) form.
+export function isSuiCoinType(coinType: string): boolean {
+  return SUI_COIN_TYPE_PATTERN.test(coinType);
+}
+
 // Map one SDK transaction to the shape the rules judge. The amount is the
-// largest absolute SUI balance change. The counterparty is the first balance
-// change address that is not the watched address.
+// largest absolute SUI balance change: other coin types have their own
+// decimals and value, so they never count as MIST. The counterparty is the
+// first balance change address (any coin type) that is not the watched address.
 export function toWatchTransaction(result: SdkTxResult, watchAddress: string): WatchTransaction | null {
   const tx = result.Transaction ?? result.FailedTransaction;
   if (tx === undefined) return null;
   const changes = tx.balanceChanges ?? [];
   let amount = 0n;
-  let coinType = '0x2::sui::SUI';
   let counterparty: string | null = null;
   for (const change of changes) {
-    const value = BigInt(change.amount);
-    const abs = value < 0n ? -value : value;
-    if (abs > amount) {
-      amount = abs;
-      coinType = change.coinType;
+    if (isSuiCoinType(change.coinType)) {
+      const value = BigInt(change.amount);
+      const abs = value < 0n ? -value : value;
+      if (abs > amount) amount = abs;
     }
     if (counterparty === null && change.address.toLowerCase() !== watchAddress.toLowerCase()) {
       counterparty = change.address.toLowerCase();
@@ -114,7 +121,7 @@ export function toWatchTransaction(result: SdkTxResult, watchAddress: string): W
     sender: tx.transaction?.sender ?? watchAddress,
     counterparty,
     amountMist: amount,
-    coinType,
+    coinType: SUI_COIN_TYPE,
     packageId: firstCall?.package ?? null,
     moduleName: firstCall?.module ?? null,
     functionName: firstCall?.function ?? null,
