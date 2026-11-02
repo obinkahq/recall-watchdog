@@ -102,3 +102,31 @@ Expected results:
   `recall` hits, not from a local counter.
 - Chain reads are checked against the Sui testnet chain identifier
   (`69WiPg3DAQiwdxfncX6wYQ2siKwAe6L9BZthQea3JNMD`).
+
+## Amendment after review 1 (2026-11-02)
+
+The independent review of head 703020a gave NO-SHIP with six findings. The
+fixes add these expected results. The earlier results above stay in force.
+
+- J2 step 8 (new): after the memories are stored, the live run reads the
+  new transactions after the cursor through Tatum and judges each one with
+  `judgeBatch` (rules, then recall of the stored verdicts). The log prints
+  each decision with its flags and the memories behind it.
+- Key material: no output, log line, thrown error text, HTTP response or
+  written file holds text from a key or from a dependency error message.
+  Each entry point prints fixed text that names the failed step. Every key
+  is checked locally before any network call.
+- Web UI: without `WATCH_ADDRESS` the app is in demo mode. A set but
+  malformed `WATCH_ADDRESS` stops startup. With a valid address and the
+  Tatum key, the UI shows the new transactions after the watch cursor with
+  their decisions and memories, and reads the next page with `nextCursor`.
+- Amount rules count SUI balance changes only (short or long coin type).
+- `setup-account` checks the owner key and reserves the output file (new,
+  absolute, outside the repository, mode 600 read back) before any chain
+  call, and writes the delegate key before the on-chain registration.
+
+Oracles for the amendment: `test/live-decisions.test.mjs` holds the expected
+live decisions written from the rules and the 12 live verdicts; the stub SDK
+clients in `test/support/` return known transactions and record each call;
+`test/ui-browser.mjs` drives the page in headless Chromium. J2 with real
+keys is still the proof on testnet: the stubs do not replace it.
