@@ -130,3 +130,34 @@ live decisions written from the rules and the 12 live verdicts; the stub SDK
 clients in `test/support/` return known transactions and record each call;
 `test/ui-browser.mjs` drives the page in headless Chromium. J2 with real
 keys is still the proof on testnet: the stubs do not replace it.
+
+## Amendment after review 2 (2026-11-02)
+
+Review 2 found that another web page in the owner's browser could store a
+verdict through the local web server (F7) and that three boundaries had no
+test (F8). These expected results are added. The earlier results stay in force.
+
+- Web server requests: the server binds to `127.0.0.1` only. Every request
+  needs a `Host` header of `127.0.0.1:PORT` or `localhost:PORT` (a DNS
+  rebinding name gets HTTP 403). An `Origin` header, when sent, must be the
+  origin of that same address (another origin and `null` get HTTP 403). A
+  request with a method other than GET or HEAD needs
+  `Content-Type: application/json` (text/plain, form, multipart and a missing
+  type get HTTP 415). A refused request stores nothing. No response carries an
+  `Access-Control-*` header. Every response has `X-Frame-Options: DENY` and a
+  content policy with `frame-ancestors 'none'`. A body above 16 KiB is refused
+  and not read to its end.
+- Server startup: a port in use, a missing or empty secret file, a bad `PORT`
+  or `NETWORK`, a malformed `WATCH_ADDRESS` and a dependency error each stop
+  startup with one fixed line, exit code 1, and no stack or key text.
+- Demo boundary: demo chain data only when `WATCH_ADDRESS` is unset or blank,
+  and then no SDK client is built. `npm run demo` builds no live client
+  whatever keys are set, and its error boundary prints fixed text only.
+- Large amount: more than 1 SUI (1,000,000,000 MIST) gets the flag; exactly
+  1 SUI does not.
+
+Oracles: `test/server-guard.test.mjs` sends raw HTTP requests and counts
+memory writes in the stub log; `test/ui-browser.mjs` opens a page of another
+site in the same browser and checks that it stores nothing;
+`test/server-startup.test.mjs`, `test/demo-boundary.test.mjs` and
+`test/amount-limit.test.mjs` hold the expected texts and boundary values.
