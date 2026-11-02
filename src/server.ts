@@ -1,8 +1,9 @@
 // Web UI server. Node http only (no web framework). Binds to 127.0.0.1.
 // Demo mode when WATCH_ADDRESS is absent. With WATCH_ADDRESS and the Tatum
-// key set, /api/snapshot also returns the Tatum chain read. A set but
+// key set, /api/live returns a cursor page of new transactions for that
+// address, judged with the rules and the recalled verdicts. A set but
 // malformed WATCH_ADDRESS stops startup (no silent demo fallback). Every
-// request body is checked with zod. Error responses carry fixed text only.
+// request is checked with zod. Error responses carry fixed text only.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -10,19 +11,22 @@ import path from 'node:path';
 import { z } from 'zod';
 import { judgeBatch } from './decide.js';
 import { createDemoMemory, createLiveMemory, type MemoryStore } from './memory.js';
-import { createSuiClients, fetchChainState, fetchTransactionsByDigest, type SuiClients } from './tatum.js';
+import { createSuiClients, fetchChainState, type SuiClients } from './tatum.js';
 import { readSecret, resolveMemwalServerUrl, resolveNamespace, resolveNetwork, resolveOptionalWatchAddress, resolvePort, type NetworkConfig } from './config.js';
 import { FixedError, RequestError, failureText, installFixedCrashHandlers } from './errors.js';
 import { checkMemwalKey, checkObjectId } from './keys.js';
 import { checkTatumKey } from './live-settings.js';
-import { formatSui } from './rules.js';
 import { DEMO_OWNER, KNOWN_COUNTERPARTIES, KNOWN_FUNCTIONS, syntheticBatch } from './synthetic.js';
+import { decisionView, judgeNewTransactions } from './watch.js';
 
 const VerdictBody = z.object({
   pattern: z.string().min(1).max(120),
   kind: z.enum(['expected', 'important']),
   note: z.string().min(1).max(200),
 });
+
+// A Sui gRPC cursor is base64 text.
+const LiveQuery = z.object({ after: z.string().regex(/^[A-Za-z0-9+/]{1,256}={0,2}$/).optional() });
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
@@ -90,6 +94,38 @@ async function main(): Promise<void> {
   const demoCtx = { knownCounterparties: KNOWN_COUNTERPARTIES, knownFunctions: KNOWN_FUNCTIONS, watchAddress: DEMO_OWNER };
   const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
   const indexHtml = readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+  // The watch starts at the chain head of the first live request.
+  let start: Promise<{ chainIdentifier: string; balanceMist: string; cursor: string }> | null = null;
+
+  async function livePage(url: URL): Promise<unknown> {
+    if (live === null) {
+      return { live: false, reason: 'Demo mode: WATCH_ADDRESS is not set. Set WATCH_ADDRESS and TATUM_API_KEY to watch a live address.' };
+    }
+    const query = LiveQuery.safeParse({ after: url.searchParams.get('after') ?? undefined });
+    if (!query.success) throw new RequestError('Invalid cursor. Pass the nextCursor value from the last page.');
+    if (start === null) {
+      start = fetchChainState(live.clients.viaTatum, live.watchAddress);
+      start.catch(() => { start = null; });
+    }
+    const head = await start;
+    const after = query.data.after ?? head.cursor;
+    const page = await judgeNewTransactions(live.clients.viaTatum, live.watchAddress, after, memory);
+    return {
+      live: true,
+      network: network.name,
+      watchAddress: live.watchAddress,
+      chainIdentifier: head.chainIdentifier,
+      balanceMist: head.balanceMist,
+      startCursor: head.cursor,
+      afterCursor: page.afterCursor,
+      nextCursor: page.nextCursor,
+      activeFlags: page.judgement.activeFlags,
+      suppressedFlags: page.judgement.suppressedFlags,
+      escalatedFlags: page.judgement.escalatedFlags,
+      decisions: page.judgement.decisions.map(decisionView),
+    };
+  }
+
   const server = createServer(async (req, res) => {
     let stage = 'request';
     try {
@@ -106,19 +142,12 @@ async function main(): Promise<void> {
         sendJson(res, 200, {
           mode,
           network: network.name,
+          liveWatch: live !== null,
           memoryCount: count,
           activeFlags: judgement.activeFlags,
           suppressedFlags: judgement.suppressedFlags,
           escalatedFlags: judgement.escalatedFlags,
-          decisions: judgement.decisions.map((d) => ({
-            digest: d.tx.digest,
-            amountSui: formatSui(d.tx.amountMist),
-            functionName: d.tx.functionName,
-            state: d.state,
-            explanation: d.explanation,
-            flags: d.flags.map((f) => ({ rule: f.rule, reason: f.reason, pattern: f.pattern })),
-            memories: d.memories.map((m) => ({ text: m.text, blobId: m.blobId })),
-          })),
+          decisions: judgement.decisions.map(decisionView),
         });
         return;
       }
@@ -132,23 +161,8 @@ async function main(): Promise<void> {
         sendJson(res, 200, { ok: true, blobId: stored.blobId, memoryCount: await memory.count() });
         return;
       }
-      if (req.method === 'GET' && url.pathname === '/api/snapshot') {
-        if (live === null) {
-          sendJson(res, 200, { live: false, reason: 'Demo mode: WATCH_ADDRESS is not set. Set WATCH_ADDRESS and TATUM_API_KEY for the live chain read.' });
-          return;
-        }
-        const snapshot = await fetchChainState(live.clients.viaTatum, live.watchAddress);
-        const digestParam = url.searchParams.get('digests') ?? '';
-        const digests = digestParam.split(',').map((d) => d.trim()).filter((d) => /^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(d)).slice(0, 10);
-        const txs = digests.length > 0 ? await fetchTransactionsByDigest(live.clients.viaTatum, live.watchAddress, digests) : [];
-        sendJson(res, 200, {
-          live: true,
-          network: network.name,
-          chainIdentifier: snapshot.chainIdentifier,
-          balanceMist: snapshot.balanceMist,
-          transactions: txs.map((t) => ({ digest: t.digest, functionName: t.functionName, amountMist: t.amountMist.toString() })),
-          note: 'Ongoing watching uses the poll model: take a cursor, then read new transactions after it. Pass ?digests=a,b to read known transactions. Run npm run live for the full round trip.',
-        });
+      if (req.method === 'GET' && url.pathname === '/api/live') {
+        sendJson(res, 200, await livePage(url));
         return;
       }
       sendJson(res, 404, { error: 'Not found.' });
@@ -159,7 +173,7 @@ async function main(): Promise<void> {
   });
 
   server.listen(port, '127.0.0.1', () => {
-    const watch = live === null ? 'demo chain data' : 'live chain read';
+    const watch = live === null ? 'demo chain data' : 'live watch on';
     process.stdout.write(`Recall Watchdog (${mode} memory, ${watch}, network ${network.name}) at http://127.0.0.1:${port}/\n`);
   });
 }

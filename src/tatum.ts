@@ -175,13 +175,3 @@ export async function fetchNewTransactions(client: ChainReader, watchAddress: st
   });
   return { transactions, nextCursor: page.endCursor ?? afterCursor };
 }
-
-export async function fetchTransactionsByDigest(client: SuiGrpcClient, watchAddress: string, digests: readonly string[]): Promise<readonly WatchTransaction[]> {
-  const out: WatchTransaction[] = [];
-  for (const digest of digests) {
-    const result = await withRetry('getTransaction', () => client.getTransaction({ digest, include: { transaction: true, balanceChanges: true, effects: true } }));
-    const mapped = toWatchTransaction(result as unknown as SdkTxResult, watchAddress);
-    if (mapped !== null) out.push(mapped);
-  }
-  return out;
-}

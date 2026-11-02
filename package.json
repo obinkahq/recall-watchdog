@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "node scripts/check.mjs",
     "test": "node --import ./test/support/deny-network.mjs --test test/*.test.mjs",
+    "test:ui": "npm run build --silent && node --import ./test/support/deny-network.mjs test/ui-browser.mjs",
     "check": "npm run typecheck && npm run lint && npm run build && npm test",
     "demo": "npm run build --silent && node dist/demo.js",
     "start": "node dist/server.js",
