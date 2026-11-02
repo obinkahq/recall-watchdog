@@ -123,6 +123,20 @@ test('live: valid-looking keys that a dependency repeats do not get out', () => 
   }
 });
 
+test('setup and live: an error outside every catch prints fixed text only', () => {
+  const { secret, address } = freshKeypair();
+  const tmp = makeTmp('canary-late-setup');
+  const setup = runEntry('setup-account', { SUI_PRIVATE_KEY: secret, MEMWAL_DELEGATE_KEY_OUT: path.join(tmp, 'd.key'), STUB_FAIL_AT: 'createAccountLate' }, tmp);
+  assert.equal(setup.status, 1);
+  assert.equal(setup.stderr, `setup-account failed: background task failed; ${'details withheld (a dependency error can hold key text)'}\n`);
+  assertNoLeak(setup.stdout + setup.stderr, [secret], 'setup late error');
+  const tmp2 = makeTmp('canary-late-live');
+  const live = runEntry('live', liveEnv(tmp2, address, { SUI_PRIVATE_KEY: secret, STUB_FAIL_AT: 'healthLate' }), tmp2);
+  assert.equal(live.status, 1);
+  assert.match(live.stderr, /^live failed: background task failed; details withheld/);
+  assertNoLeak(live.stdout + live.stderr, [secret, fakeTatumKey(), fakeMemwalKey()], 'live late error');
+});
+
 test('live: bad Tatum and Walrus Memory keys, and a key for another address, get fixed text', () => {
   const { secret, address } = freshKeypair();
   const other = freshKeypair().address;

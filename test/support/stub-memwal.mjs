@@ -1,7 +1,7 @@
 // Stub for @mysten-incubation/memwal. MemWal.create returns a client backed
 // by the SDK's own MemWalMock (same recall), with listMemories and health.
 import { MemWalMock } from '@mysten-incubation/memwal';
-import { maybeFail, record } from './stub-common.mjs';
+import { maybeFail, maybeFailLate, record } from './stub-common.mjs';
 
 export { MemWalMock };
 
@@ -31,6 +31,8 @@ export const MemWal = {
       async health() {
         record({ module: 'memwal', method: 'health' });
         maybeFail('health', config.key);
+        const late = maybeFailLate('health', config.key);
+        if (late !== null) return late;
         return { status: 'ok' };
       },
       destroy() {

@@ -15,6 +15,14 @@ export function record(entry) {
   if (file) appendFileSync(file, `${JSON.stringify(entry)}\n`);
 }
 
+// STUB_FAIL_AT=<method>Late: the call never settles and a timer throws an
+// error that repeats the key, outside every catch (an uncaught exception).
+export function maybeFailLate(method, keyText) {
+  if (process.env.STUB_FAIL_AT !== `${method}Late`) return null;
+  setTimeout(() => { throw new Error(`late ${method} failure for input ${String(keyText)}`); }, 5);
+  return new Promise(() => {});
+}
+
 export function maybeFail(method, keyText) {
   if (process.env.STUB_FAIL_AT !== method) return;
   const error = new Error(`stub ${method} failed for input ${String(keyText)}`);

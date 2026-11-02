@@ -2,7 +2,7 @@
 // Each call is recorded, so a test can count chain calls (zero when the
 // output path is bad). The fake delegate key comes from STUB_DELEGATE_KEY.
 import { statSync } from 'node:fs';
-import { maybeFail, record } from './stub-common.mjs';
+import { maybeFail, maybeFailLate, record } from './stub-common.mjs';
 
 // When STUB_CHECK_FILE is set, each chain call records the state of that
 // file at the moment of the call (exists, mode, size).
@@ -22,6 +22,8 @@ const hex = (pair) => `0x${pair.repeat(32)}`;
 export async function createAccount(opts) {
   record({ module: 'account', method: 'createAccount', network: opts.suiNetwork, checkFile: checkFile() });
   maybeFail('createAccount', opts.suiPrivateKey);
+  const late = maybeFailLate('createAccount', opts.suiPrivateKey);
+  if (late !== null) return late;
   return { accountId: hex('ac'), owner: hex('0e'), digest: 'StubCreateDigest' };
 }
 
