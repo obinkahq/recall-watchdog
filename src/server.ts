@@ -8,7 +8,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { judgeBatch } from './decide.js';
 import { createDemoMemory, createLiveMemory, type MemoryStore } from './memory.js';
-import { createSuiClients, fetchChainState, type SuiClients } from './tatum.js';
+import { createSuiClients, fetchChainState, fetchTransactionsByDigest, type SuiClients } from './tatum.js';
 import { ADDRESS_PATTERN, readSecret, resolveMemwalServerUrl, resolveNamespace, resolveNetwork, resolvePort } from './config.js';
 import { formatSui } from './rules.js';
 import { DEMO_OWNER, KNOWN_COUNTERPARTIES, KNOWN_FUNCTIONS, syntheticBatch } from './synthetic.js';
@@ -111,13 +111,16 @@ async function main(): Promise<void> {
           return;
         }
         const snapshot = await fetchChainState(clients.viaTatum, watchAddress);
+        const digestParam = url.searchParams.get('digests') ?? '';
+        const digests = digestParam.split(',').map((d) => d.trim()).filter((d) => /^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(d)).slice(0, 10);
+        const txs = digests.length > 0 ? await fetchTransactionsByDigest(clients.viaTatum, watchAddress, digests) : [];
         sendJson(res, 200, {
           live: true,
           network: network.name,
           chainIdentifier: snapshot.chainIdentifier,
           balanceMist: snapshot.balanceMist,
-          transactions: [],
-          note: 'Transaction watching uses the poll model: take a cursor, then read new transactions after it. Run npm run live for the full round trip.',
+          transactions: txs.map((t) => ({ digest: t.digest, functionName: t.functionName, amountMist: t.amountMist.toString() })),
+          note: 'Ongoing watching uses the poll model: take a cursor, then read new transactions after it. Pass ?digests=a,b to read known transactions. Run npm run live for the full round trip.',
         });
         return;
       }
