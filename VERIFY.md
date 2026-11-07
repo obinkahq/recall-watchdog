@@ -4,7 +4,8 @@
 
 A hackathon judge who clones this repository, reads the README, and runs the
 demo. A second consumer is a Sui wallet owner who runs the same code against
-Sui testnet with their own keys.
+Sui testnet (default) or, with `ALLOW_MAINNET=1`, Sui mainnet, with their own
+keys.
 
 Supported interfaces:
 
@@ -88,7 +89,8 @@ Expected results:
 - No secret value (private key, API key) in any file, log line, or commit.
   Keys are read from the environment or from a file outside the repository.
 - No mainnet call unless `NETWORK=mainnet` and `ALLOW_MAINNET=1` are both set.
-  The default network is testnet. This build never runs mainnet.
+  The default network is testnet. Mainnet runs only when it is asked for; the
+  run of 7 November 2026 is journey J4 in the last amendment below.
 - No personal data. Demo data and the demo wallet only. The managed relayer
   sees plaintext, so verdict memory text holds only synthetic patterns.
 - No unrelated code. This repository holds only this hackathon entry.
@@ -164,3 +166,77 @@ site in the same browser and checks that it stores nothing and makes the
 server call nothing;
 `test/server-startup.test.mjs`, `test/demo-boundary.test.mjs` and
 `test/amount-limit.test.mjs` hold the expected texts and boundary values.
+
+## Amendment after the mainnet run (2026-11-07)
+
+On 7 November 2026 the live entry point ran once on Sui mainnet. This is
+journey J4. The earlier results stay in force, except the sentence "This build
+never runs mainnet" in "Prohibited effects", which is replaced above. J4 uses
+no stub: it runs the real live entry point against Sui mainnet, the public
+Walrus Memory relayer and the Tatum mainnet gateway.
+
+### Journey J4: live mainnet run, read-only on the chain side
+
+Consumer: a hackathon judge who reads the README section "Mainnet run of 7
+November 2026" and checks the public identifiers on public services.
+
+Preconditions: `NETWORK=mainnet` and `ALLOW_MAINNET=1`; a Tatum API key; a
+Walrus Memory mainnet account with a registered delegate key; a namespace of
+the runner's choice (`recall-watchdog-mainnet` on 7 November 2026);
+`SUI_PRIVATE_KEY` not set, so the run makes no self-transfer. The code under
+test is commit `a0e94e9aac1b80e172af4fd6fe74e3605ce4222a` (tree
+`06d3079c9396e5d0a3db54286dd376f4aa095cbe`). The commit that adds this
+amendment changes `README.md` and `VERIFY.md` only.
+
+Steps: `npm run live` with the settings above. On 7 November 2026 a wrapper
+script outside this repository started the live entry point; the app printed
+the lines that the README quotes.
+
+Expected results (the observed result of the run of 7 November 2026 is in
+brackets):
+
+1. The start line shows the mainnet network, the mainnet relayer and the Tatum
+   mainnet host. [`network=mainnet relayer=https://relayer.memory.walrus.xyz
+   tatumHost=sui-mainnet-grpc.gateway.tatum.io:443
+   namespace=recall-watchdog-mainnet`]
+2. `health()` returns `ok`. [`health=ok`]
+3. The Tatum read returns the Sui mainnet chain identifier. [`4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S`]
+4. The app stores 12 verdict memories and prints 12 blob ids. [12 lines
+   `remember N/12`, N from 1 to 12]
+5. `recall` for three queries returns hits. [5 hits for each query]
+6. The memory count in the namespace is 10 or more. [12]
+7. The process prints `Live checks: PASS` and exits with code 0. [yes]
+8. No secret value appears in any output line. [A scan of the run output for
+   key forms (hex, base64, Bech32) found none. This is local evidence and it
+   is unauthenticated.]
+
+Oracles (independent of the output of the app):
+
+- Each of the 12 blob ids returns HTTP 200 from a Walrus mainnet aggregator,
+  with the size in the README table. [12 of 12, read again on 2026-11-07 at
+  13:24 UTC]
+- The Sui mainnet GraphQL service lists 12 `::blob::Blob` objects owned by the
+  owner wallet. Their `blob_id` values equal the 12 ids, and `end_epoch` is 58.
+  [yes]
+- The relayer lists the delegate public key `4e08f145…` with the label
+  `recall-watchdog-mainnet` for the account. [yes]
+- The chain identifier of Sui mainnet in the GraphQL service equals the one the
+  app read through Tatum. [yes]
+
+Prohibited effects (observed absent): a mainnet call without both switches
+(the app refuses it); a SUI payment by the owner wallet (its balance is 0 SUI
+and did not change in the key registration transaction or in the 12 write
+transactions; a gas sponsor paid); a self-transfer; a secret in an output line.
+
+What J4 does not cover:
+
+- The decision loop on live mainnet transactions. The poll after the cursor
+  found no new transaction (`newTx=0`; `active=0 suppressed=0 escalated=0`).
+  The suppress and escalate effect is shown by the offline demo (J1) only.
+- A read of the memory text by a third party. That needs the delegate key.
+- Retention. The blobs are deletable. Their storage ends about 2027-06-01
+  15:00 UTC (epoch 58).
+- The cost and the usage limits of the relayer for other users. The relayer
+  paid for the writes of this run.
+- Authentication of the evidence. The run lines in the README are copied from
+  the output of the run. They are not signed.
