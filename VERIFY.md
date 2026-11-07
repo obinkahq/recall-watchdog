@@ -90,7 +90,7 @@ Expected results:
   Keys are read from the environment or from a file outside the repository.
 - No mainnet call unless `NETWORK=mainnet` and `ALLOW_MAINNET=1` are both set.
   The default network is testnet. Mainnet runs only when it is asked for; the
-  run of 7 November 2026 is journey J4 in the last amendment below.
+  runs of 7 November 2026 are journey J4 in the last amendment below.
 - No personal data. Demo data and the demo wallet only. The managed relayer
   sees plaintext, so verdict memory text holds only synthetic patterns.
 - No unrelated code. This repository holds only this hackathon entry.
@@ -167,10 +167,11 @@ server call nothing;
 `test/server-startup.test.mjs`, `test/demo-boundary.test.mjs` and
 `test/amount-limit.test.mjs` hold the expected texts and boundary values.
 
-## Amendment after the mainnet run (2026-11-07)
+## Amendment after the mainnet runs (2026-11-07, two runs)
 
-On 7 November 2026 the live entry point ran once on Sui mainnet. This is
-journey J4. The earlier results stay in force, except the sentence "This build
+On 7 November 2026 the live entry point ran twice on Sui mainnet: from 12:26
+to 12:30 UTC (namespace `recall-watchdog-mainnet`) and from 21:46 to 21:50 UTC
+(namespace `default`, see "Second run" at the end of J4). This is journey J4. The earlier results stay in force, except the sentence "This build
 never runs mainnet" in "Prohibited effects", which is replaced above. J4 uses
 no stub: it runs the real live entry point against Sui mainnet, the public
 Walrus Memory relayer and the Tatum mainnet gateway.
@@ -182,7 +183,7 @@ November 2026" and checks the public identifiers on public services.
 
 Preconditions: `NETWORK=mainnet` and `ALLOW_MAINNET=1`; a Tatum API key; a
 Walrus Memory mainnet account with a registered delegate key; a namespace of
-the runner's choice (`recall-watchdog-mainnet` on 7 November 2026);
+the runner's choice (`recall-watchdog-mainnet` in the first run and `default` in the second run, both on 7 November 2026);
 `SUI_PRIVATE_KEY` not set, so the run makes no self-transfer. The code under
 test is commit `a0e94e9aac1b80e172af4fd6fe74e3605ce4222a` (tree
 `06d3079c9396e5d0a3db54286dd376f4aa095cbe`). The commit that adds this
@@ -192,8 +193,8 @@ Steps: `npm run live` with the settings above. On 7 November 2026 a wrapper
 script outside this repository started the live entry point; the app printed
 the lines that the README quotes.
 
-Expected results (the observed result of the run of 7 November 2026 is in
-brackets):
+Expected results (the observed result of the first run of 7 November 2026
+(12:26 to 12:30 UTC) is in brackets):
 
 1. The start line shows the mainnet network, the mainnet relayer and the Tatum
    mainnet host. [`network=mainnet relayer=https://relayer.memory.walrus.xyz
@@ -215,9 +216,10 @@ Oracles (independent of the output of the app):
 - Each of the 12 blob ids returns HTTP 200 from a Walrus mainnet aggregator,
   with the size in the README table. [12 of 12, read again on 2026-11-07 at
   13:24 UTC]
-- The Sui mainnet GraphQL service lists 12 `::blob::Blob` objects owned by the
-  owner wallet. Their `blob_id` values equal the 12 ids, and `end_epoch` is 58.
-  [yes]
+- The Sui mainnet GraphQL service lists the 12 `::blob::Blob` objects of this
+  run among the objects owned by the owner wallet (24 objects after the second
+  run, see below). Their `blob_id` values equal the 12 ids, and `end_epoch` is
+  58. [yes]
 - The relayer lists the delegate public key `4e08f145…` with the label
   `recall-watchdog-mainnet` for the account. [yes]
 - The chain identifier of Sui mainnet in the GraphQL service equals the one the
@@ -228,6 +230,30 @@ Prohibited effects (observed absent): a mainnet call without both switches
 and did not change in the key registration transaction or in the 12 write
 transactions; a gas sponsor paid); a self-transfer; a secret in an output line.
 
+Second run (same day, namespace `default`): J4 was run a second time with the
+same code (commit `a0e94e9aac1b80e172af4fd6fe74e3605ce4222a`) and the same
+switches (`NETWORK=mainnet`, `ALLOW_MAINNET=1`, `SUI_PRIVATE_KEY` not set), with
+`MEMWAL_NAMESPACE=default`. Observed, from 21:46:04 to 21:49:58
+UTC: items 1 to 7 as above, with `namespace=default` in the start line, 12 lines
+`remember N/12` with 12 new blob ids, 5 hits for each of the 3 queries,
+`memory count in namespace=12`, `Live checks: PASS`, exit code 0. The oracles
+for the second run:
+
+- Each of the 12 new blob ids (README table "Second run of 7 November 2026")
+  returns HTTP 200 from the Walrus mainnet aggregator, with the size in that
+  table. [12 of 12, read on 2026-11-07 at 22:27 UTC; the 12 ids of the first run
+  answered 200 again]
+- The Sui mainnet GraphQL service lists 24 `::blob::Blob` objects owned by the
+  owner wallet: the 12 of the first run and the 12 of the second run. In every
+  object `start_epoch` is 43, `end_epoch` is 58 and `deletable` is true. [yes,
+  read on 2026-11-07 at 22:48 UTC]
+- The balance list of the owner wallet returns no coin. [yes, same time]
+- A separate read-only reader listed the namespace `default` through the relayer
+  and returned the same 12 blob ids as the run printed. [yes, ended 21:50 UTC]
+
+The second run stores the same 12 verdicts as the first run. It adds no new
+behaviour; it puts the memories into a second namespace.
+
 What J4 does not cover:
 
 - The decision loop on live mainnet transactions. The poll after the cursor
@@ -237,6 +263,7 @@ What J4 does not cover:
 - Retention. The blobs are deletable. Their storage ends about 2027-06-01
   15:00 UTC (epoch 58).
 - The cost and the usage limits of the relayer for other users. The relayer
-  paid for the writes of this run.
+  paid for the writes of the first run; after the second run the owner wallet
+  still holds no coin.
 - Authentication of the evidence. The run lines in the README are copied from
-  the output of the run. They are not signed.
+  the output of each run. They are not signed.
