@@ -2,11 +2,11 @@
 
 Recall Watchdog watches Sui wallet activity and learns what its owner cares about. Simple rules raise flags for a new counterparty, an amount above 1 SUI, an unfamiliar Move function, or a burst of transactions to one counterparty. The owner marks each flag as `expected` or `important`; each mark is stored in Walrus Memory, and recalled marks then suppress or escalate later flags — with the memory shown behind every decision.
 
-Track: Smart Agents for Real Life. Default network: **Sui testnet**. Mainnet is opt in (see "Network switch"). A run on mainnet on 7 November 2026 stored 12 verdict memories in Walrus Memory on Sui mainnet: see "Mainnet run of 7 November 2026".
+Track: Smart Agents for Real Life. Default network: **Sui testnet**. Mainnet is opt in (see "Network switch"). Two runs on mainnet on 7 November 2026 stored 12 verdict memories each in Walrus Memory on Sui mainnet, in two namespaces: see "Mainnet run of 7 November 2026" and "Second run of 7 November 2026".
 
 ## How it uses Walrus Memory and Tatum
 
-- **Walrus Memory** (`@mysten-incubation/memwal`, default namespace `recall-watchdog`; `MEMWAL_NAMESPACE` changes it, and the mainnet run used `recall-watchdog-mainnet`): `remember` stores each owner verdict (pattern, verdict, short note). Before a flag is shown, the watchdog `recall`s similar past verdicts and then suppresses the flag (owner said `expected`) or escalates it (owner said `important`). `listMemories` gives the memory count. Demo mode uses the SDK mock (`MemWalMock`): same API, same verdict text, no network and no key.
+- **Walrus Memory** (`@mysten-incubation/memwal`, default namespace `recall-watchdog`; `MEMWAL_NAMESPACE` changes it; the first mainnet run used `recall-watchdog-mainnet` and the second used `default`): `remember` stores each owner verdict (pattern, verdict, short note). Before a flag is shown, the watchdog `recall`s similar past verdicts and then suppresses the flag (owner said `expected`) or escalates it (owner said `important`). `listMemories` gives the memory count. Demo mode uses the SDK mock (`MemWalMock`): same API, same verdict text, no network and no key.
 - **Tatum Sui RPC**: chain reads (chain identifier, balance, and the new transactions of the watch address after a cursor) go through the Tatum Sui gRPC gateway with the Sui TypeScript SDK (`SuiGrpcClient` over native gRPC). The API key is sent as `x-api-key` metadata. Each transaction that Tatum returns goes through the same rules and the same memory recall as the demo, and each decision is shown with the memories behind it.
 
 | Network | Tatum endpoint used by this app | Walrus Memory relayer |
@@ -82,7 +82,7 @@ For the same steps on mainnet, see "Mainnet run of 7 November 2026".
 
 ## Network switch
 
-`NETWORK=testnet` is the default. `NETWORK=mainnet` selects the mainnet relayer, contract ids, and Tatum mainnet host — but the app **refuses to start** unless `ALLOW_MAINNET=1` is also set. Credentials are specific to a network: a testnet delegate key and account do not work on mainnet. The journeys J1 to J3 in `VERIFY.md` use testnet or no network. One run on mainnet was made on 7 November 2026 with the same code (journey J4 in `VERIFY.md`); the next section describes it.
+`NETWORK=testnet` is the default. `NETWORK=mainnet` selects the mainnet relayer, contract ids, and Tatum mainnet host — but the app **refuses to start** unless `ALLOW_MAINNET=1` is also set. Credentials are specific to a network: a testnet delegate key and account do not work on mainnet. The journeys J1 to J3 in `VERIFY.md` use testnet or no network. Two runs on mainnet were made on 7 November 2026 with the same code (journey J4 in `VERIFY.md`); the next section and its subsection "Second run of 7 November 2026" describe them.
 
 ## Mainnet run of 7 November 2026
 
@@ -101,18 +101,18 @@ A small wrapper script, which is not part of this repository, started the app. B
 |---|---|
 | Network | Sui mainnet. Chain identifier read through Tatum in the run: `4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S` |
 | Walrus Memory relayer | `https://relayer.memory.walrus.xyz` |
-| Namespace | `recall-watchdog-mainnet` |
+| Namespace | `recall-watchdog-mainnet` (the second run used `default`) |
 | Memory account id (`MemWalAccount` object on Sui) | `0x8e0e7d1428852cd62847bb2a6e899967e6d331367e733c905b7bea2428fa39a4` |
-| Owner wallet (the `owner` field of the account object; owns the 12 Blob objects) | `0x906d5fe96469d60dcceeceaf206be8a44744596fe02995da77c63d2c7ae8fe92` |
+| Owner wallet (the `owner` field of the account object; owns the 12 Blob objects of this run, and 24 after the second run) | `0x906d5fe96469d60dcceeceaf206be8a44744596fe02995da77c63d2c7ae8fe92` |
 | Delegate public key that the run was set up with (`MEMWAL_AGENT_ID`) | `4e08f1459a5cc87e2ec66554d40da041c9039b685056b26f30bbeff34c6c5254` (label `recall-watchdog-mainnet`) |
 | Sui address of that delegate key | `0xa5340a20905b886f7f45fe47b34d0fe6478ec9c2eee8c2ef39a3e4d0401195c3` |
 | Memory package id (mainnet) | `0xe7c16fbea0560e7057e2bf7422feaa4fb313749fc69c9e9092fac7a33b81d7f5` (also in `src/config.ts`) |
 | Delegate key registration | Sui transaction `FqXDc9LNoMDTUsH1VADrfhVTWFc1Mmux1Uz3GYqbZUJS`, 2026-11-07 11:35:50 UTC, status SUCCESS, checkpoint 342625114 |
-| Storage end of the 12 blobs | Walrus epoch 58, about 2027-06-01 15:00 UTC |
+| Storage end of the 12 blobs (and of the 12 blobs of the second run) | Walrus epoch 58, about 2027-06-01 15:00 UTC |
 
 The account holds a second delegate key (label `Web App`, created 2026-11-01). The run was set up with the key labelled `recall-watchdog-mainnet`. No public record shows which of the two keys signed a given write; the relayer lists both keys for the account (check 3 below). Only public keys and addresses are written here. The secret delegate key is not in this repository.
 
-### The 12 memories
+### The 12 memories of the first run
 
 Each memory is one text: `watchdog verdict | pattern: … | verdict: … | note: …` (`verdictText` in `src/memory.ts`). The 12 patterns are synthetic. Memories 1 to 8 are `SCRIPTED_VERDICTS` in `src/synthetic.ts`; memories 9 to 12 are the four extra verdicts in `src/live.ts`. The pattern, the verdict and the blob id are the `remember N/12` lines of the run. The last column is the size that the Walrus aggregator returned on 7 November 2026 at 13:24 UTC.
 
@@ -150,11 +150,49 @@ Lines of the run (a selection; the recall hits are not shown):
 
 The process exit code was 0. Right after the run, a separate read-only reader (also outside this repository) listed the namespace through the relayer. It returned the same 12 blob ids: 12 of 12, none more.
 
+### Second run of 7 November 2026
+
+From 21:46:04 to 21:49:58 UTC on the same day, the live entry point ran a second time. The code was the same (commit `a0e94e9aac1b80e172af4fd6fe74e3605ce4222a`, tree `06d3079c9396e5d0a3db54286dd376f4aa095cbe`) and the switches were the same (`NETWORK=mainnet`, `ALLOW_MAINNET=1`, `SUI_PRIVATE_KEY` not set), except `MEMWAL_NAMESPACE=default`. A wrapper script outside this repository started the app, as in the first run. The run stored the same 12 verdicts in the same order, and each memory got a new blob id. So the same 12 verdicts were written to two namespaces: `recall-watchdog-mainnet` (first run) and `default` (second run). The 12 new Blob objects belong to the same owner wallet (check 2 below).
+
+| # | Time (UTC, 7 Nov 2026) | Verdict | Pattern (synthetic) | Blob id | Bytes |
+|---|---|---|---|---|---|
+| 1 | 21:46:20.099 | expected | `new-counterparty 57rangea` | `qSeXlWrD1sjj7rTBmIbXaME7XuSrv7_qfeedMNkDm7U` | 424 |
+| 2 | 21:46:41.120 | expected | `large-amount transfer 5av1ng50` | `f-p7L4qkvAgc5AN5cP0R0J1BtpYgp5stDRrAUm0f6fM` | 438 |
+| 3 | 21:47:02.251 | expected | `unfamiliar-function buy_listing` | `rMopJg5Pvn3mncRVIzmDTPoBsqIDy3rzW_VM3DKz3OM` | 416 |
+| 4 | 21:47:22.015 | expected | `new-counterparty nf7marke` | `tzeubtTeSHGHI_2T8CXT-37Kg04gYMaja9NlFigY2AQ` | 409 |
+| 5 | 21:47:41.421 | expected | `large-amount swap` | `a5riqkhdrCchL0EEIcx7pirgF9rE379CGrYVwjG_-1M` | 407 |
+| 6 | 21:48:02.193 | important | `new-counterparty 57rangeb` | `LAqAqKgtfneW-Gf6h_KpVxR90D85e63kEV6JQvuL1UU` | 413 |
+| 7 | 21:48:24.251 | important | `unfamiliar-function flash_borrow` | `N6dZkynNY85C8iZlLNoPHVxkT8OwxKYp_KwtW-UkQi0` | 425 |
+| 8 | 21:48:45.750 | important | `unfamiliar-function deposit` | `P9o-dcsj0Sgf7Q2yzuEgGjCwPCjS-Fz7rX0Eri-y8eM` | 410 |
+| 9 | 21:49:02.215 | expected | `new-counterparty a11ce000` | `O7NLXHTSe4evi7ZKTUlhIG2BwI2Hh1e1CIK6g6ao84g` | 414 |
+| 10 | 21:49:18.559 | important | `large-amount deposit` | `TSJFW3jcL4Eg8I8tEFkX3SF2_PeLP6vdfbbJHSV4jH8` | 415 |
+| 11 | 21:49:34.536 | expected | `unfamiliar-function swap` | `d-vom1kLdE-AvLSapAxkPnoo00qC0TgGZ-_qprYdxmY` | 405 |
+| 12 | 21:49:50.432 | expected | `new-counterparty 5av1ng50` | `yqwolpyGStWU4aDdxaPKF0bx32Eq7SiyEUtKIqjzto8` | 404 |
+
+Lines of the run (a selection; the recall hits are not shown):
+
+```
+2026-11-07T21:46:04.213Z start network=mainnet relayer=https://relayer.memory.walrus.xyz tatumHost=sui-mainnet-grpc.gateway.tatum.io:443 namespace=default
+2026-11-07T21:46:04.464Z health=ok
+2026-11-07T21:46:04.663Z tatum chain=4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S balanceMist=0 cursorTaken=yes
+2026-11-07T21:46:04.663Z self-transfer skipped: SUI_PRIVATE_KEY is not set (read-only live run)
+2026-11-07T21:46:04.663Z storing 12 verdict memories
+...
+2026-11-07T21:49:53.181Z recall "watchdog verdict pattern new-counterparty rent share flatmate" -> 5 hits
+2026-11-07T21:49:55.602Z recall "watchdog verdict pattern large-amount savings transfer" -> 5 hits
+2026-11-07T21:49:58.320Z recall "watchdog verdict pattern unfamiliar-function flash borrow important" -> 5 hits
+2026-11-07T21:49:58.725Z memory count in namespace=12
+2026-11-07T21:49:58.780Z tatum poll after the cursor: newTx=0 cursorAdvanced=no
+2026-11-07T21:49:58.780Z Live checks: PASS
+```
+
+The process exit code was 0. Right after the second run (the run ended at 21:49:58 UTC), a separate read-only reader (also outside this repository) listed the namespace `default` through the relayer. It returned the same 12 blob ids: 12 of 12, none more.
+
 ### Check it yourself
 
 These checks need no key. They are read-only.
 
-1. **The 12 blobs exist on Walrus mainnet.** Each command prints the HTTP status and the size; the expected values are in the last column of the table. The same blobs are also served by `https://aggregator.suicore.com` (checked for 3 of the 12 ids on 7 November 2026); [the docs list more aggregators](https://docs.wal.app/operators.json).
+1. **The 24 blobs (12 per run) exist on Walrus mainnet.** Each command prints the HTTP status and the size; the expected values are in the last column of the table of the run. `https://aggregator.suicore.com` also served the 3 ids of the first run that were checked there on 7 November 2026; [the docs list more aggregators](https://docs.wal.app/operators.json).
 
    ```sh
    for entry in \
@@ -176,15 +214,47 @@ These checks need no key. They are read-only.
    done
    ```
 
-   On 7 November 2026 at 13:24 UTC all 12 answered `200` with these sizes. The bytes are stored data, not the memory text: the text is not readable in them (none of the words `watchdog`, `verdict`, `expected` or `important` occurs in any of the 12 bodies). In all 12 bodies, bytes 1 to 32 (counted from 0) are the memory package id and bytes 34 to 65 are the owner wallet address. This was observed on 7 November 2026; it is not a documented format.
+   On 7 November 2026 at 13:24 UTC all 12 answered `200` with these sizes. The bytes are stored data, not the memory text: the text is not readable in them (none of the words `watchdog`, `verdict`, `expected` or `important` occurs in any of the 12 bodies of the first run). In all 12 bodies of the first run, bytes 1 to 32 (counted from 0) are the memory package id and bytes 34 to 65 are the owner wallet address. This was observed on 7 November 2026; it is not a documented format.
 
-2. **The 12 Blob objects belong to the owner wallet on Sui mainnet.**
+   The 12 blobs of the second run (namespace `default`; the sizes are those of the table above):
+
+   ```sh
+   for entry in \
+     qSeXlWrD1sjj7rTBmIbXaME7XuSrv7_qfeedMNkDm7U:424 \
+     f-p7L4qkvAgc5AN5cP0R0J1BtpYgp5stDRrAUm0f6fM:438 \
+     rMopJg5Pvn3mncRVIzmDTPoBsqIDy3rzW_VM3DKz3OM:416 \
+     tzeubtTeSHGHI_2T8CXT-37Kg04gYMaja9NlFigY2AQ:409 \
+     a5riqkhdrCchL0EEIcx7pirgF9rE379CGrYVwjG_-1M:407 \
+     LAqAqKgtfneW-Gf6h_KpVxR90D85e63kEV6JQvuL1UU:413 \
+     N6dZkynNY85C8iZlLNoPHVxkT8OwxKYp_KwtW-UkQi0:425 \
+     P9o-dcsj0Sgf7Q2yzuEgGjCwPCjS-Fz7rX0Eri-y8eM:410 \
+     O7NLXHTSe4evi7ZKTUlhIG2BwI2Hh1e1CIK6g6ao84g:414 \
+     TSJFW3jcL4Eg8I8tEFkX3SF2_PeLP6vdfbbJHSV4jH8:415 \
+     d-vom1kLdE-AvLSapAxkPnoo00qC0TgGZ-_qprYdxmY:405 \
+     yqwolpyGStWU4aDdxaPKF0bx32Eq7SiyEUtKIqjzto8:404; do
+     id=${entry%%:*}; size=${entry##*:}
+     printf '%s expected 200 %s, got ' "$id" "$size"
+     curl -sS -o /dev/null -w '%{http_code} %{size_download}\n' "https://aggregator.walrus-mainnet.walrus.space/v1/blobs/$id"
+   done
+   ```
+
+   On 7 November 2026 at 22:27 UTC all 12 blobs of the second run answered `200` with these sizes, and the 12 blobs of the first run answered `200` with their sizes again.
+
+2. **The 24 Blob objects (12 per run) belong to the owner wallet on Sui mainnet.**
 
    ```sh
    curl -sS https://graphql.mainnet.sui.io/graphql -H 'content-type: application/json' -d '{"query":"{ chainIdentifier address(address:\"0x906d5fe96469d60dcceeceaf206be8a44744596fe02995da77c63d2c7ae8fe92\") { objects(first:50, filter:{type:\"0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77::blob::Blob\"}) { nodes { address contents { json } } } } }"}'
    ```
 
-   Expected: `chainIdentifier` is `4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S`; there are 12 nodes; in every node `storage.start_epoch` is `43`, `storage.end_epoch` is `58`, `deletable` is `true`, and `size` is one of the sizes in the table. The `blob_id` field is a decimal number. To get the blob id of the table, write the number as 32 bytes in little-endian order and encode it as base64url without padding. The 12 numbers give the 12 ids.
+   Expected: `chainIdentifier` is `4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S`; there are 24 nodes (12 of each run; there were 12 before the second run); in every node `storage.start_epoch` is `43`, `storage.end_epoch` is `58`, `deletable` is `true`, and `size` is one of the sizes in the tables. The `blob_id` field is a decimal number. To get the blob id of the table, write the number as 32 bytes in little-endian order and encode it as base64url without padding. The 24 numbers give the 24 ids (the 12 of each table). Read again on 7 November 2026 at 22:48 UTC: 24 nodes, `start_epoch` 43, `end_epoch` 58 and `deletable` true in every node, and 12 ids from each table.
+
+   The coin balances of the owner wallet:
+
+   ```sh
+   curl -sS https://graphql.mainnet.sui.io/graphql -H 'content-type: application/json' -d '{"query":"{ address(address:\"0x906d5fe96469d60dcceeceaf206be8a44744596fe02995da77c63d2c7ae8fe92\") { balances { nodes { totalBalance } } } }"}'
+   ```
+
+   Expected: `nodes` is an empty list (read on 7 November 2026 at 22:48 UTC: `{"data":{"address":{"balances":{"nodes":[]}}}}`).
 
 3. **The delegate key belongs to the account.** The relayer lists the public keys of the delegate keys of an account:
 
@@ -194,18 +264,18 @@ These checks need no key. They are read-only.
 
    Expected: `account_id` is `0x8e0e7d14…fa39a4`, and `keys` holds the public key `4e08f145…c5254` with the label `recall-watchdog-mainnet`, and a second key with the label `Web App`. The registration transaction `FqXDc9LNoMDTUsH1VADrfhVTWFc1Mmux1Uz3GYqbZUJS` is on Sui mainnet: its sender is the owner wallet and its gas sponsor is another address.
 
-4. **The namespace holds 12 memories.** The app counts them with `listMemories` in `count()` of `createLiveMemory` (`src/memory.ts`) and printed `memory count in namespace=12`. That call, and the `recall` calls, need the delegate key. Only the holder of the key can repeat them. The checks 1 to 3 need no key.
+4. **Each namespace held 12 memories at the end of its run.** The app counts them with `listMemories` in `count()` of `createLiveMemory` (`src/memory.ts`) and printed `memory count in namespace=12` in each run (namespace `recall-watchdog-mainnet` in the first run, `default` in the second). That call, and the `recall` calls, need the delegate key. Only the holder of the key can repeat them. The checks 1 to 3 need no key.
 
-### What the run shows, and what it does not show
+### What the runs show, and what they do not show
 
-- **It shows** that the app wrote 12 memories to Walrus Memory on mainnet through the public relayer, that the relayer health was `ok`, that the Tatum mainnet gateway answered the chain read (chain identifier, balance, cursor), that `recall` returned 5 hits for each of 3 queries, and that the namespace held 12 memories.
-- **The relayer paid.** The relayer docs say: "The managed relayer covers WAL storage fees and SUI gas through its server wallets and configured gas sponsor. Account holders do not pay gas or WAL for these relayed writes." ([relayer docs](https://docs.wal.app/walrus-memory/relayer/public-relayer)). The owner wallet holds 0 SUI. Its balance did not change in the key registration transaction or in the 12 write transactions; one sponsor address paid the gas of all of them. So the run does not show what a user pays, or what happens when the shared service applies its usage limits.
-- **The memories can be deleted.** The 12 Blob objects are `deletable`, and the owner wallet holds them. The storage ends about 2027-06-01 15:00 UTC (epoch 58; one mainnet epoch is 14 days). The run is a record of 7 November 2026. It is not a promise that the blobs stay.
-- **Demo data only.** The 12 memories hold synthetic patterns and short notes. No real wallet activity was stored.
-- **The learning loop was not run on mainnet transactions.** The watch address had no new transaction after the cursor: `newTx=0`, so the decision summary is `active=0 suppressed=0 escalated=0`. The before-and-after effect of the learning loop (fewer active flags in the second pass) is shown by the offline demo, which uses the SDK mock. The mainnet run shows the write, recall and count steps with real mainnet storage, not the suppress and escalate steps on live mainnet data.
+- **It shows** that the app wrote 12 memories to Walrus Memory on mainnet through the public relayer, that the relayer health was `ok`, that the Tatum mainnet gateway answered the chain read (chain identifier, balance, cursor), that `recall` returned 5 hits for each of 3 queries, and that the namespace held 12 memories. The second run did the same in the namespace `default`: the same code, the same 12 verdicts, 12 new blobs.
+- **The relayer paid.** The relayer docs say: "The managed relayer covers WAL storage fees and SUI gas through its server wallets and configured gas sponsor. Account holders do not pay gas or WAL for these relayed writes." ([relayer docs](https://docs.wal.app/walrus-memory/relayer/public-relayer)). The owner wallet holds 0 SUI. Its balance did not change in the key registration transaction or in the 12 write transactions of the first run; one sponsor address paid the gas of all of them. After the second run the owner wallet still holds no coin (read on 7 November 2026 at 22:48 UTC). So the runs do not show what a user pays, or what happens when the shared service applies its usage limits.
+- **The memories can be deleted.** The 24 Blob objects are `deletable`, and the owner wallet holds them. The storage ends about 2027-06-01 15:00 UTC (epoch 58; one mainnet epoch is 14 days). The runs are a record of 7 November 2026. It is not a promise that the blobs stay.
+- **Demo data only.** The memories of both runs hold the same 12 synthetic verdicts, with short notes. No real wallet activity was stored.
+- **The learning loop was not run on mainnet transactions.** The watch address had no new transaction after the cursor: `newTx=0`, so the decision summary is `active=0 suppressed=0 escalated=0`. The before-and-after effect of the learning loop (fewer active flags in the second pass) is shown by the offline demo, which uses the SDK mock. The mainnet runs show the write, recall and count steps with real mainnet storage, not the suppress and escalate steps on live mainnet data.
 - **No self-transfer on mainnet.** `SUI_PRIVATE_KEY` was not set.
 - **Not repeatable by others as is.** The account id and the delegate public key above are public. The secret key that matches is not in this repository. A reader needs their own account and delegate key. The commands below use your own ids.
-- **The log is a record, not a proof.** The log lines above are copied from the output of the run. Checks 1 to 3 let a reader verify that the blobs, the owner and the key exist on public services. They do not verify the log lines.
+- **The log is a record, not a proof.** The log lines above are copied from the output of each run. Checks 1 to 3 let a reader verify that the blobs, the owner and the key exist on public services. They do not verify the log lines.
 
 ### Repeat the run with your own account
 
@@ -229,7 +299,7 @@ Warnings:
 
 - **Use your own keys and account.** Never put a key, a key file or a `.env` value in this repository. `.gitignore` ignores `.env`, `.env.*` and `*.key`. Keep the key files outside the repository, in files that only you can read (mode 600).
 - **Costs may apply.** On 7 November 2026 the relayer paid for the writes, and the relayer docs say that the service applies usage limits. The terms can change. Check the relayer docs before you run.
-- **Do not set `SUI_PRIVATE_KEY` unless you mean to spend SUI.** With it set, `npm run live` sends two self-transfers of 1,000 MIST each from `WATCH_ADDRESS` on mainnet, and it pays gas for them with real SUI. The key must belong to `WATCH_ADDRESS`. The run of 7 November 2026 left it unset.
+- **Do not set `SUI_PRIVATE_KEY` unless you mean to spend SUI.** With it set, `npm run live` sends two self-transfers of 1,000 MIST each from `WATCH_ADDRESS` on mainnet, and it pays gas for them with real SUI. The key must belong to `WATCH_ADDRESS`. Both runs of 7 November 2026 left it unset.
 - **Each run writes 12 memories.** They stay on Walrus mainnet until their storage ends. Use a namespace of your own.
 - **Do not store personal data.** The relayer sees plaintext during embedding and encryption (see "Limits and safety").
 
